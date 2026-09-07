@@ -65,10 +65,9 @@ else {
     .whenReady()
     .then(start)
     .catch((error) => {
-      dialog.showErrorBox(
-        "nonstopvibin could not start",
-        error instanceof Error ? error.message : String(error),
-      );
+      const message = error instanceof Error ? error.message : String(error);
+      console.error(`nonstopvibin could not start: ${message}`);
+      dialog.showErrorBox("nonstopvibin could not start", message);
       app.quit();
     });
 }
