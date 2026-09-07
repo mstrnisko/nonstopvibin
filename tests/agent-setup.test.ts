@@ -5,6 +5,7 @@ import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { randomUUID } from "node:crypto";
 import {
+  chmod,
   mkdir,
   mkdtemp,
   readFile,
@@ -99,6 +100,34 @@ async function fixture() {
     },
   };
 }
+
+test(
+  "custom Codex roots reject shared write access",
+  { skip: process.getuid === undefined },
+  async () => {
+    const directory = await realpath(await mkdtemp("/tmp/nv-codex-root-"));
+    const home = join(directory, "home");
+    const codex = join(directory, "codex");
+    await mkdir(home);
+    await mkdir(codex);
+    await chmod(codex, 0o777);
+    const setup = new AgentSetup(
+      join(directory, "data"),
+      () => ({ key: `nv_${"A".repeat(43)}`, port: 4399 }),
+      { home, codex },
+    );
+    try {
+      await assert.rejects(
+        setup.install(profile(), ...input("codex", directory)),
+        /directory you own, without symbolic links or shared write access/,
+      );
+    } finally {
+      await setup.close();
+      await rm(directory, { recursive: true, force: true });
+      await rm(setup.socketDirectory, { recursive: true, force: true });
+    }
+  },
+);
 
 test("native installs use harness configuration, keep secrets out of files and resolve immutable profile keys", async () => {
   const f = await fixture();

@@ -9,10 +9,14 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 
 ### Fixed
 
+- API account and credential updates now roll back together when a write fails.
 - Malformed sign-in callback URLs now receive a safe error response without stopping the app.
 
 ### Security
 
+- Core archives and extracted binaries now use reviewed source pins before packaging.
+- Packaged resources now exclude unapproved license files and reject secret-like paths.
+- Custom agent configuration roots now reject shared write access.
 - Invalid quota responses no longer persist provider response excerpts in error text.
 
 ### Changed

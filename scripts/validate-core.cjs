@@ -23,11 +23,18 @@ module.exports = async function validateCore(context) {
     throw new Error(
       `The proxy core is ${manifest.platform}/${manifest.arch}, but the app target is ${context.electronPlatformName}/${arch}. Run core:install for the target first.`,
     );
+  const binaryPin = release.binaries[`${manifest.platform}_${manifest.arch}`];
+  if (!binaryPin)
+    throw new Error("The proxy core target has no reviewed binary pin.");
+  if (manifest.binarySha256 !== binaryPin)
+    throw new Error(
+      "The proxy core manifest does not match the reviewed binary pin. Run bun run core:install again.",
+    );
   const digest = createHash("sha256")
     .update(readFileSync(join(root, "cli-proxy-api")))
     .digest("hex");
-  if (digest !== manifest.binarySha256)
+  if (digest !== binaryPin)
     throw new Error(
-      "The proxy core changed after installation. Run bun run core:install again.",
+      "The proxy core binary does not match the reviewed release pin. Run bun run core:install again.",
     );
 };

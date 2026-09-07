@@ -71,30 +71,49 @@ test("packaging rejects an unreviewed core, wrong target and altered binary", as
   try {
     const core = join(root, ".vendor/core");
     await mkdir(core, { recursive: true });
-    const bytes = Buffer.from("synthetic core");
+    const installedManifest = JSON.parse(
+      await readFile(join(project, ".vendor/core/manifest.json"), "utf8"),
+    );
+    const bytes = await readFile(join(project, ".vendor/core/cli-proxy-api"));
     await writeFile(join(core, "cli-proxy-api"), bytes);
+    const target = `${installedManifest.platform}_${installedManifest.arch}`;
     const manifest = {
+      ...installedManifest,
       version: release.version,
-      platform: "darwin",
-      arch: "arm64",
-      sha256: release.checksums.darwin_arm64,
-      binarySha256: createHash("sha256").update(bytes).digest("hex"),
+      sha256: release.checksums[target],
+      binarySha256: release.binaries[target],
     };
     const save = (value) =>
       writeFile(join(core, "manifest.json"), JSON.stringify(value));
     const context = {
       packager: { projectDir: root },
-      arch: Arch.arm64,
-      electronPlatformName: "darwin",
+      arch: Arch[installedManifest.arch],
+      electronPlatformName: installedManifest.platform,
     };
     await save(manifest);
     await validateCore(context);
+    const synthetic = Buffer.from("synthetic core");
+    await writeFile(join(core, "cli-proxy-api"), synthetic);
+    await save({
+      ...manifest,
+      binarySha256: createHash("sha256").update(synthetic).digest("hex"),
+    });
+    await assert.rejects(validateCore(context), /reviewed binary pin/);
+    await writeFile(join(core, "cli-proxy-api"), bytes);
+    await save(manifest);
     await assert.rejects(
-      validateCore({ ...context, electronPlatformName: "linux" }),
+      validateCore({
+        ...context,
+        electronPlatformName:
+          installedManifest.platform === "darwin" ? "linux" : "darwin",
+      }),
       /target/,
     );
     await assert.rejects(
-      validateCore({ ...context, arch: Arch.x64 }),
+      validateCore({
+        ...context,
+        arch: installedManifest.arch === "arm64" ? Arch.x64 : Arch.arm64,
+      }),
       /target/,
     );
     await save({ ...manifest, version: "0.0.0" });
@@ -103,7 +122,7 @@ test("packaging rejects an unreviewed core, wrong target and altered binary", as
     await assert.rejects(validateCore(context), /reviewed release/);
     await save(manifest);
     await writeFile(join(core, "cli-proxy-api"), "tampered");
-    await assert.rejects(validateCore(context), /changed after installation/);
+    await assert.rejects(validateCore(context), /reviewed release pin/);
   } finally {
     await rm(root, { recursive: true, force: true });
   }
@@ -134,6 +153,10 @@ test("the packaged archive check catches source, secrets and stale output", asyn
       await writeFile(join(root, ".vendor/core", file), "synthetic");
       await writeFile(join(resources, "core", file), "synthetic");
     }
+    for (const file of ["CLIProxyAPI.txt", "NOTICE.md"]) {
+      await writeFile(join(root, "licenses", file), "synthetic");
+      await writeFile(join(resources, "licenses", file), "synthetic");
+    }
     const license = await readFile(join(project, "LICENSE"));
     await writeFile(join(root, "LICENSE"), license);
     await writeFile(join(resources, "LICENSE"), license);
@@ -148,6 +171,12 @@ test("the packaged archive check catches source, secrets and stale output", asyn
     };
     await pack();
     await verifyPackage(context);
+    await writeFile(
+      join(resources, "licenses", "tokens.json"),
+      "must not ship",
+    );
+    await assert.rejects(verifyPackage(context), /tokens\.json/);
+    await rm(join(resources, "licenses", "tokens.json"));
     for (const file of [
       "README.md",
       "dist/client/auth.json",

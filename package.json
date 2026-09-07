@@ -100,7 +100,11 @@
       },
       {
         "from": "licenses",
-        "to": "licenses"
+        "to": "licenses",
+        "filter": [
+          "CLIProxyAPI.txt",
+          "NOTICE.md"
+        ]
       },
       {
         "from": "LICENSE",

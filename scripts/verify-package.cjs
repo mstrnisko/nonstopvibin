@@ -1,8 +1,19 @@
 const assert = require("node:assert/strict");
 const { readFileSync, readdirSync } = require("node:fs");
-const { join } = require("node:path");
+const { join, relative } = require("node:path");
 const { createHash } = require("node:crypto");
 const { listPackage, extractFile } = require("@electron/asar");
+
+const privateFilePattern =
+  /(?:^|\/)(?:\.env(?:\.[^/]*)?|\.runtime|\.test-runtime|\.deepsec|\.agents|\.git|\.codex|\.claude|\.playwright-cli|id_rsa|id_ed25519|auth\.json|credentials\.json|tokens\.json)(?:\/|$)|\.(?:pem|key|p12|pfx|sqlite3?(?:-(?:wal|shm))?|db(?:-(?:wal|shm))?|map)$/;
+
+function resourcePaths(root, folder = root) {
+  return readdirSync(folder, { withFileTypes: true }).flatMap((entry) => {
+    const path = join(folder, entry.name);
+    const name = relative(root, path);
+    return entry.isDirectory() ? [name, ...resourcePaths(root, path)] : [name];
+  });
+}
 
 module.exports = async function verifyPackage(context) {
   const resources =
@@ -23,10 +34,16 @@ module.exports = async function verifyPackage(context) {
     );
     assert.doesNotMatch(
       entry,
-      /(?:^|\/)(?:\.env(?:\.[^/]*)?|\.runtime|\.test-runtime|\.deepsec|\.agents|\.git|\.codex|\.claude|\.playwright-cli|id_rsa|id_ed25519|auth\.json|credentials\.json|tokens\.json)(?:\/|$)|\.(?:pem|key|p12|pfx|sqlite3?(?:-(?:wal|shm))?|db(?:-(?:wal|shm))?|map)$/,
+      privateFilePattern,
       `Private or development file in package: ${entry}`,
     );
   }
+  for (const entry of resourcePaths(resources))
+    assert.doesNotMatch(
+      entry,
+      privateFilePattern,
+      `Private or development file in package resources: ${entry}`,
+    );
   for (const file of [
     "dist/desktop/main.cjs",
     "dist/desktop/preload.cjs",
@@ -52,7 +69,9 @@ module.exports = async function verifyPackage(context) {
     "cli-proxy-api",
     "manifest.json",
   ]);
-  for (const file of readdirSync(join(project, "licenses")))
+  const licenses = ["CLIProxyAPI.txt", "NOTICE.md"];
+  assert.deepEqual(readdirSync(join(resources, "licenses")).sort(), licenses);
+  for (const file of licenses)
     assert.deepEqual(
       readFileSync(join(resources, "licenses", file)),
       readFileSync(join(project, "licenses", file)),

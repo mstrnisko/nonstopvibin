@@ -41,6 +41,17 @@ export class Store {
       CREATE TABLE IF NOT EXISTS settings (id TEXT PRIMARY KEY, value TEXT NOT NULL);
     `);
   }
+  private transaction<T>(work: () => T): T {
+    this.db.exec("BEGIN IMMEDIATE");
+    try {
+      const result = work();
+      this.db.exec("COMMIT");
+      return result;
+    } catch (error) {
+      this.db.exec("ROLLBACK");
+      throw error;
+    }
+  }
   profiles(): Profile[] {
     return this.db
       .prepare("SELECT body FROM profiles ORDER BY rowid")
@@ -75,8 +86,7 @@ export class Store {
       enabled: false,
       createdAt: new Date().toISOString(),
     };
-    this.db.exec("BEGIN IMMEDIATE");
-    try {
+    this.transaction(() => {
       this.db
         .prepare("INSERT INTO profiles VALUES (?,?,?)")
         .run(profile.id, slug, JSON.stringify(profile));
@@ -92,11 +102,7 @@ export class Store {
         `${profile.id}:management`,
         randomBytes(32).toString("base64url"),
       );
-      this.db.exec("COMMIT");
-    } catch (error) {
-      this.db.exec("ROLLBACK");
-      throw error;
-    }
+    });
     return profile;
   }
   saveProfile(profile: Profile): void {
@@ -136,19 +142,23 @@ export class Store {
       .map((r) => stored<ApiAccount>(r.body));
   }
   saveApiAccount(profileId: string, account: ApiAccount, key?: string): void {
-    this.db
-      .prepare("INSERT OR REPLACE INTO api_accounts VALUES (?,?,?)")
-      .run(account.id, profileId, JSON.stringify(account));
-    if (key !== undefined) this.setSecret(`${account.id}:api`, key);
+    this.transaction(() => {
+      this.db
+        .prepare("INSERT OR REPLACE INTO api_accounts VALUES (?,?,?)")
+        .run(account.id, profileId, JSON.stringify(account));
+      if (key !== undefined) this.setSecret(`${account.id}:api`, key);
+    });
   }
   removeApiAccount(profileId: string, accountId: string): void {
-    this.db
-      .prepare("DELETE FROM api_accounts WHERE profile_id=? AND id=?")
-      .run(profileId, accountId);
-    this.db.prepare("DELETE FROM secrets WHERE id=?").run(`${accountId}:api`);
-    this.db
-      .prepare("DELETE FROM quotas WHERE profile_id=? AND account_id=?")
-      .run(profileId, accountId);
+    this.transaction(() => {
+      this.db
+        .prepare("DELETE FROM api_accounts WHERE profile_id=? AND id=?")
+        .run(profileId, accountId);
+      this.db.prepare("DELETE FROM secrets WHERE id=?").run(accountId + ":api");
+      this.db
+        .prepare("DELETE FROM quotas WHERE profile_id=? AND account_id=?")
+        .run(profileId, accountId);
+    });
   }
   quota(profileId: string, accountId: string): Quota | undefined {
     const row = this.db
@@ -166,9 +176,8 @@ export class Store {
     const stmt = this.db.prepare(
       "INSERT OR IGNORE INTO usage VALUES (?,?,?,?)",
     );
-    this.db.exec("BEGIN IMMEDIATE");
-    const changedProfiles = new Set<string>();
-    try {
+    const changedProfiles = this.transaction(() => {
+      const changed = new Set<string>();
       for (const r of records) {
         const result = stmt.run(
           r.id,
@@ -176,14 +185,11 @@ export class Store {
           r.timestamp,
           JSON.stringify(r),
         );
-        if (result.changes) changedProfiles.add(r.profileId);
+        if (result.changes) changed.add(r.profileId);
       }
-      this.db.exec("COMMIT");
-      for (const profileId of changedProfiles) this.summaries.delete(profileId);
-    } catch (error) {
-      this.db.exec("ROLLBACK");
-      throw error;
-    }
+      return changed;
+    });
+    for (const profileId of changedProfiles) this.summaries.delete(profileId);
   }
   usage(profileId: string, since = "", limit = 300): UsageRecord[] {
     return this.db

@@ -26,6 +26,19 @@ export async function configPath(
   create: boolean,
 ): Promise<string> {
   const canonical = await realpath(root);
+  const validateDirectory = async (folder: string) => {
+    const status = await lstat(folder);
+    if (
+      !status.isDirectory() ||
+      status.isSymbolicLink() ||
+      status.uid !== process.getuid?.() ||
+      (status.mode & 0o022) !== 0
+    )
+      throw new AppError(
+        "Agent configuration needs a directory you own, without symbolic links or shared write access.",
+      );
+  };
+  await validateDirectory(canonical);
   let folder = canonical;
   for (const name of names.slice(0, -1)) {
     folder = join(folder, name);
@@ -36,16 +49,7 @@ export async function configPath(
         },
       );
     try {
-      const status = await lstat(folder);
-      if (
-        !status.isDirectory() ||
-        status.isSymbolicLink() ||
-        status.uid !== process.getuid?.() ||
-        (status.mode & 0o022) !== 0
-      )
-        throw new AppError(
-          "Agent configuration needs a directory you own, without symbolic links or shared write access.",
-        );
+      await validateDirectory(folder);
     } catch (error) {
       if (!create && isMissing(error)) return join(canonical, ...names);
       throw error;
