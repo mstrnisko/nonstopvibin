@@ -25,6 +25,7 @@ function isInsideTypeGuard(node: ESTree.Node): boolean {
 
 /** Return whether typeof safely probes for the existence of a possibly absent binding. */
 function isExistenceProbe(node: ESTree.UnaryExpression): boolean {
+	if (node.argument.type !== "Identifier") return false;
 	const parent = node.parent;
 	if (parent.type !== "BinaryExpression") return false;
 	if (!["===", "!==", "==", "!="].includes(parent.operator)) return false;

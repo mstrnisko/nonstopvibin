@@ -312,7 +312,7 @@ export function App() {
           {profile && (
             <div className="proxy-card">
               <Status value={profile.runtime} />
-              {profile.runtime === "stopped" ? (
+              {profile.runtime === "stopped" || profile.runtime === "error" ? (
                 <button
                   className="button small"
                   disabled={Boolean(busy)}
@@ -322,7 +322,7 @@ export function App() {
                     )
                   }
                 >
-                  Start
+                  {profile.runtime === "error" ? "Restart" : "Start"}
                 </button>
               ) : (
                 <code>{state.gateway.replace(/^https?:\/\//, "")}</code>

@@ -10,7 +10,7 @@ import type {
 import { providerLabel } from "../shared/providers.ts";
 import { api } from "./api.ts";
 import { Empty } from "./components.tsx";
-import { accountLabel, count } from "./format.ts";
+import { accountLabel, count, csvCell } from "./format.ts";
 
 const ranges = [
   { days: 1, label: "24h" },
@@ -278,14 +278,10 @@ export function ActivityPage({ profile }: { profile: ProfileState }) {
       "latencyMs",
       "statusCode",
     ];
-    const escape = (value: UsageRecord[keyof UsageRecord]) =>
-      `"${String(value)
-        .replace(/^[=+@-]/, "'$&")
-        .replaceAll('"', '""')}"`;
     const csv = [
       keys.join(","),
       ...filtered.map((record) =>
-        keys.map((key) => escape(record[key])).join(","),
+        keys.map((key) => csvCell(String(record[key]))).join(","),
       ),
     ].join("\n");
     const url = URL.createObjectURL(new Blob([csv], { type: "text/csv" }));

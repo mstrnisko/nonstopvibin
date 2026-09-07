@@ -42,6 +42,11 @@ export function count(n: number): string {
     maximumFractionDigits: 1,
   }).format(n);
 }
+export function csvCell(value: string): string {
+  return `"${value
+    .replace(/^(\s*)([=+@\t\r-])/, "$1'$2")
+    .replaceAll('"', '""')}"`;
+}
 export function resetIn(value: string | null, now = Date.now()): string {
   if (!value) return "no reset time";
   const seconds = Math.ceil((new Date(value).getTime() - now) / 1000);

@@ -17,12 +17,6 @@ jobs:
             target: --linux AppImage deb
     runs-on: ${{ matrix.os }}
     timeout-minutes: 30
-    env:
-      CSC_LINK: ${{ secrets.CSC_LINK }}
-      CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
-      APPLE_ID: ${{ secrets.APPLE_ID }}
-      APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
-      APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -38,19 +32,37 @@ jobs:
       - run: bun run quality
       - run: bun test
       - run: bun run build
-      - if: runner.os == 'macOS' && env.CSC_LINK != ''
+      - if: runner.os == 'macOS'
+        id: signing
         run: |
-          test -n "$APPLE_ID" && test -n "$APPLE_APP_SPECIFIC_PASSWORD" && test -n "$APPLE_TEAM_ID" || {
-            echo "Signed macOS releases require APPLE_ID, APPLE_APP_SPECIFIC_PASSWORD, and APPLE_TEAM_ID."
-            exit 1
-          }
-      - if: runner.os == 'macOS' && env.CSC_LINK != ''
+          if [ -z "$CSC_LINK" ]; then
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+          else
+            test -n "$APPLE_ID" && test -n "$APPLE_APP_SPECIFIC_PASSWORD" && test -n "$APPLE_TEAM_ID" || {
+              echo "Signed macOS releases require APPLE_ID, APPLE_APP_SPECIFIC_PASSWORD, and APPLE_TEAM_ID."
+              exit 1
+            }
+            echo "enabled=true" >> "$GITHUB_OUTPUT"
+          fi
+        env:
+          CSC_LINK: ${{ secrets.CSC_LINK }}
+          CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+      - if: steps.signing.outputs.enabled == 'true'
         run: bun run electron-builder ${{ matrix.target }} --publish never -c.forceCodeSigning=true
-      - if: runner.os == 'macOS' && env.CSC_LINK != ''
+        env:
+          CSC_LINK: ${{ secrets.CSC_LINK }}
+          CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+      - if: steps.signing.outputs.enabled == 'true'
         run: |
           xcrun stapler validate release/mac-arm64/nonstopvibin.app
           spctl -a -vv -t execute release/mac-arm64/nonstopvibin.app
-      - if: runner.os == 'macOS' && env.CSC_LINK == ''
+      - if: runner.os == 'macOS' && steps.signing.outputs.enabled != 'true'
         run: bun run electron-builder ${{ matrix.target }} --publish never
       - if: runner.os == 'Linux'
         run: bun run electron-builder ${{ matrix.target }} --publish never

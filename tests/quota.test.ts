@@ -7,7 +7,7 @@ import { CorePool } from "../src/server/core.ts";
 import { parseQuota } from "../src/server/quota.ts";
 import { Store } from "../src/server/store.ts";
 import { fileKeyCodec } from "../src/server/vault.ts";
-import { isQuotaStale, resetIn } from "../src/client/format.ts";
+import { csvCell, isQuotaStale, resetIn } from "../src/client/format.ts";
 import { goModelProtocol } from "../src/shared/providers.ts";
 
 const now = Date.parse("2026-09-05T12:00:00Z");
@@ -153,6 +153,12 @@ test("OpenCode Go API percentages below one are percentages, not fractions", () 
 test("No windows is unavailable and an elapsed reset asks for a fresh observation", () => {
   assert.equal(parseQuota("unknown", {}).status, "unavailable");
   assert.equal(resetIn("2026-09-05T11:59:59Z", now), "reset due · refresh");
+});
+test("CSV cells neutralize whitespace-prefixed formulas and escape quotes", () => {
+  assert.equal(csvCell(" =SUM(A1)"), `" '=SUM(A1)"`);
+  assert.equal(csvCell("\t=cmd"), `"\t'=cmd"`);
+  assert.equal(csvCell("plain text"), `"plain text"`);
+  assert.equal(csvCell(`say "hello"`), `"say ""hello"""`);
 });
 test("Antigravity fractions and Grok weekly/monthly limits preserve independent resets", () => {
   const google = parseQuota(
