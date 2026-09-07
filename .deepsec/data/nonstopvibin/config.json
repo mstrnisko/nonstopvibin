@@ -1,0 +1,10 @@
+{
+  "priorityPaths": ["src/server/", "src/desktop/", "scripts/"],
+  "ignorePaths": [
+    ".deepsec/**", ".agents/**", ".codex/**", "node_modules/**",
+    "dist/**", "release/**", ".vendor/**", ".runtime/**",
+    ".test-runtime/**", ".research/**", "artifacts/**", "coverage/**",
+    "docs/design/**", ".env", ".env.*", "**/*.key", "**/*.pem",
+    "**/*.sqlite*", "**/*.db*"
+  ]
+}

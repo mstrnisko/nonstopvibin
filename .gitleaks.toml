@@ -1,0 +1,11 @@
+title = "nonstopvibin secret scanning"
+
+[extend]
+useDefault = true
+
+[[allowlists]]
+description = "RFC 6455 public example nonce in the WebSocket handshake fixture"
+condition = "AND"
+paths = ['''^tests/integration\.test\.ts$''']
+regexTarget = "line"
+regexes = ['''"Sec-WebSocket-Key": "dGhlIHNhbXBsZSBub25jZQ=="''']

@@ -1,0 +1,24 @@
+{
+  "name": "deepsec-workspace",
+  "version": "0.1.0",
+  "private": true,
+  "description": "deepsec scanning workspace",
+  "type": "module",
+  "workspaces": [],
+  "packageManager": "bun@1.4.2",
+  "dependencies": {
+    "deepsec": "2.3.9"
+  },
+  "scripts": {
+    "scan": "deepsec scan --project-id nonstopvibin",
+    "status": "deepsec status --project-id nonstopvibin",
+    "report": "deepsec report --project-id nonstopvibin",
+    "export": "deepsec export --project-id nonstopvibin --format md-dir --out ./findings",
+    "process": "deepsec process --project-id nonstopvibin",
+    "revalidate": "deepsec revalidate --project-id nonstopvibin",
+    "audit": "bun audit --audit-level=high"
+  },
+  "overrides": {
+    "@earendil-works/pi-coding-agent": "0.85.1"
+  }
+}

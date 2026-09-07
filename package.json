@@ -1,0 +1,138 @@
+{
+  "name": "nonstopvibin",
+  "version": "0.1.1",
+  "description": "Your subscriptions, in their own space.",
+  "private": true,
+  "homepage": "https://github.com/samuelfarkas/nonstopvibin",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/samuelfarkas/nonstopvibin.git"
+  },
+  "bugs": {
+    "url": "https://github.com/samuelfarkas/nonstopvibin/issues"
+  },
+  "type": "module",
+  "main": "dist/desktop/main.cjs",
+  "engines": {
+    "bun": ">=1.4.2"
+  },
+  "scripts": {
+    "dev": "bun scripts/dev.mjs",
+    "dev:web": "vite --host 127.0.0.1",
+    "dev:server": "bun src/server/standalone.ts",
+    "core:install": "bun scripts/install-core.mjs",
+    "check": "tsc --noEmit",
+    "test": "bun test",
+    "build": "bun run check && vite build && bun scripts/build-desktop.mjs",
+    "start": "electron .",
+    "package": "bun run build && electron-builder --dir --publish never",
+    "dist:mac": "bun run build && electron-builder --mac dmg --publish never",
+    "dist:linux": "bun run build && electron-builder --linux AppImage deb --publish never",
+    "format": "oxfmt --write src tests scripts *.json *.ts index.html .github .vscode .oxlintrc.json .oxfmtrc.json",
+    "lint": "oxlint . --max-warnings 0",
+    "quality": "bun run check && bun run lint && bun run format:check",
+    "security:deps": "bun audit --audit-level=high",
+    "security:scan": "bun run --cwd .deepsec scan",
+    "security:report": "bun run --cwd .deepsec report",
+    "setup": "bun ci && bun run core:install",
+    "preview": "bun run build && bun scripts/preview.ts",
+    "security:install": "bun scripts/install-security-tools.mjs",
+    "security:secrets": ".vendor/security/gitleaks dir . --config .gitleaks-source.toml --redact --no-banner",
+    "security:history": "git rev-parse --verify HEAD >/dev/null && .vendor/security/gitleaks git . --config .gitleaks.toml --redact --no-banner --log-opts=--all",
+    "security:tooling": "bun run --cwd .deepsec audit",
+    "icons": "bun scripts/icons.mjs",
+    "format:check": "oxfmt --check src tests scripts *.json *.ts index.html .github .vscode .oxlintrc.json .oxfmtrc.json"
+  },
+  "dependencies": {
+    "@fontsource-variable/geist": "^5.3.0",
+    "@fontsource-variable/geist-mono": "^5.3.0",
+    "@radix-ui/react-dialog": "^1.1.15",
+    "@radix-ui/react-select": "^2.3.7",
+    "lucide-react": "1.41.0",
+    "react": "19.2.8",
+    "react-dom": "19.2.8",
+    "yaml": "^2.8.1",
+    "zod": "^4.1.5"
+  },
+  "devDependencies": {
+    "@electron/asar": "3.4.1",
+    "@oxlint/plugins": "1.81.0",
+    "@types/node": "^24.0.0",
+    "@types/react": "^19.2.0",
+    "@types/react-dom": "^19.2.0",
+    "@vitejs/plugin-react": "^5.0.0",
+    "electron": "44.2.0",
+    "electron-builder": "26.15.3",
+    "esbuild": "^0.28.2",
+    "oxfmt": "0.66.0",
+    "oxlint": "1.81.0",
+    "sharp": "^0.35.4",
+    "typescript": "^5.9.2",
+    "vite": "8.2.2"
+  },
+  "build": {
+    "appId": "app.nonstopvibin.desktop",
+    "productName": "nonstopvibin",
+    "artifactName": "${productName}-${version}-${os}-${arch}.${ext}",
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "samuelfarkas",
+        "repo": "nonstopvibin"
+      }
+    ],
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "dist/**/*",
+      "package.json",
+      "!**/*.map"
+    ],
+    "extraResources": [
+      {
+        "from": ".vendor/core",
+        "to": "core",
+        "filter": [
+          "cli-proxy-api",
+          "manifest.json"
+        ]
+      },
+      {
+        "from": "licenses",
+        "to": "licenses"
+      },
+      {
+        "from": "LICENSE",
+        "to": "LICENSE"
+      }
+    ],
+    "electronFuses": {
+      "runAsNode": false,
+      "enableNodeOptionsEnvironmentVariable": false,
+      "resetAdHocDarwinSignature": true
+    },
+    "mac": {
+      "category": "public.app-category.developer-tools",
+      "icon": "public/icon.icns",
+      "target": [
+        "dmg"
+      ],
+      "identity": null
+    },
+    "linux": {
+      "category": "Development",
+      "icon": "public/icon.png",
+      "target": [
+        "AppImage",
+        "deb"
+      ],
+      "maintainer": "nonstopvibin"
+    },
+    "beforePack": "scripts/validate-core.cjs",
+    "afterPack": "scripts/verify-package.cjs"
+  },
+  "author": "nonstopvibin",
+  "license": "MIT",
+  "packageManager": "bun@1.4.2"
+}

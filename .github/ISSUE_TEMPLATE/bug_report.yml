@@ -1,0 +1,63 @@
+name: Bug report
+description: Report a reproducible problem in nonstopvibin
+title: "[Bug]: "
+labels:
+  - bug
+body:
+  - type: input
+    id: version
+    attributes:
+      label: App version
+      placeholder: 0.1.1
+    validations:
+      required: true
+  - type: input
+    id: os
+    attributes:
+      label: OS and version
+      placeholder: macOS 15.6 or Ubuntu 24.04
+    validations:
+      required: true
+  - type: dropdown
+    id: install
+    attributes:
+      label: Install method
+      options:
+        - DMG
+        - AppImage
+        - deb
+        - source
+    validations:
+      required: true
+  - type: input
+    id: providers
+    attributes:
+      label: Provider(s) involved
+      placeholder: Anthropic, OpenAI, or none
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+    validations:
+      required: true
+  - type: checkboxes
+    id: sensitive-data
+    attributes:
+      label: Sensitive data
+      options:
+        - label: I removed API keys, tokens, request bodies and provider error bodies from this report
+          required: true

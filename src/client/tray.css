@@ -1,0 +1,225 @@
+/* The fixed 386px menu-bar panel uses a smaller scale than the main window. */
+.tray-view {
+  --text-caption: 0.75rem;
+  --text-body: 0.875rem;
+  --text-subheading: 1rem;
+  --text-heading: 1.125rem;
+  --text-metric: 1.5rem;
+  width: 100%;
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: var(--bg-2);
+  color: var(--ink);
+  font-size: var(--text-caption);
+}
+
+.tray-view > header {
+  min-height: 44px;
+  padding: 8px 12px 8px 14px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  border-bottom: 1px solid var(--line);
+}
+
+.tray-view > .inline-error {
+  margin: 8px 12px 0;
+}
+
+.tray-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  scrollbar-color: var(--bg-4) transparent;
+}
+
+.tray-scroll section + section {
+  border-top: 1px solid var(--line);
+}
+
+.tray-profile {
+  width: 100%;
+  min-height: 34px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto 14px;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 14px;
+  border: 0;
+  background: var(--bg-1);
+  text-align: left;
+}
+
+.tray-profile:hover {
+  background: var(--bg-3);
+}
+
+.tray-profile strong {
+  min-width: 0;
+  font-family: var(--sans);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--text-body);
+  font-weight: 600;
+}
+
+.tray-profile > span {
+  color: var(--ink-3);
+  font-family: var(--mono);
+  font-size: var(--text-caption);
+  text-transform: lowercase;
+}
+
+.tray-profile > svg {
+  color: var(--ink-3);
+}
+
+.tray-account {
+  padding: 10px 14px 9px;
+  border-top: 1px solid var(--line);
+}
+
+.tray-account.stale .meter-track > div {
+  opacity: 0.45;
+}
+
+.tray-account.disabled {
+  opacity: 0.55;
+}
+
+.tray-account-name {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 7px;
+}
+
+.tray-account-name strong {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--text-body);
+  font-weight: 600;
+}
+
+.tray-account-name small {
+  max-width: 48%;
+  overflow: hidden;
+  color: var(--ink-3);
+  font-family: var(--mono);
+  font-size: var(--text-caption);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tray-window {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) max-content max-content;
+  align-items: center;
+  gap: 2px 8px;
+  min-height: 22px;
+}
+
+.tray-window + .tray-window {
+  margin-top: 8px;
+}
+
+.tray-window > span,
+.tray-window > small,
+.tray-window > strong {
+  font-family: var(--mono);
+  font-size: var(--text-caption);
+  font-weight: 400;
+  white-space: nowrap;
+}
+
+.tray-window > span,
+.tray-window > small {
+  color: var(--ink-3);
+}
+
+.tray-window > span {
+  grid-column: 1 / -1;
+  overflow-wrap: anywhere;
+  white-space: normal;
+}
+
+.tray-window > small {
+  overflow: hidden;
+  text-align: right;
+  text-overflow: ellipsis;
+}
+
+.tray-window > strong {
+  color: var(--ink-2);
+  text-align: right;
+}
+
+.tray-window > strong.low {
+  color: var(--amber-text);
+}
+
+.tray-window > strong.empty {
+  color: var(--red);
+}
+
+.tray-window .meter-track {
+  min-width: 0;
+}
+
+.tray-unavailable {
+  display: block;
+  padding: 2px 0;
+  color: var(--ink-3);
+  font-family: var(--mono);
+  font-size: var(--text-caption);
+}
+
+.tray-error {
+  display: block;
+  margin-top: 3px;
+  font-family: var(--mono);
+  font-size: var(--text-caption);
+}
+
+.tray-age {
+  display: block;
+  margin-top: 4px;
+  color: var(--ink-3);
+  font-family: var(--mono);
+  font-size: var(--text-caption);
+}
+
+.tray-empty {
+  padding: 10px 14px 12px;
+  color: var(--ink-3);
+  font-family: var(--mono);
+  font-size: var(--text-caption);
+}
+
+.tray-view .empty-state {
+  margin: 24px auto;
+}
+
+.tray-view > footer {
+  min-height: 42px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 7px 14px;
+  border-top: 1px solid var(--line);
+  background: var(--bg-1);
+}
+
+.tray-view > footer > span {
+  color: var(--ink-3);
+  font-family: var(--mono);
+  font-size: var(--text-caption);
+  white-space: nowrap;
+}

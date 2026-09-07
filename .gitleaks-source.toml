@@ -1,0 +1,12 @@
+title = "nonstopvibin working-directory secret scanning"
+
+[extend]
+path = ".gitleaks.toml"
+
+[[allowlists]]
+description = "Local scan exclusions only; the history scan has no directory exclusions"
+paths = [
+  '''(^|/)(node_modules|\.git|\.vendor|\.runtime|\.test-runtime|\.research|dist|release|coverage|artifacts|\.playwright-cli|\.codex|\.claude|test-results|playwright-report)/''',
+  '''(^|/)\.deepsec/(data/[^/]+/(files|runs|setup|reports)/|findings/|exports/|reports/)''',
+]
+

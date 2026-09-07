@@ -1,0 +1,7 @@
+[run]
+# Run Node-shebang tools (Vite, TypeScript, Electron's CLI) with Bun.
+bun = true
+
+[test]
+# Exclude vendored code, security tooling, and disposable test snapshots.
+root = "tests"

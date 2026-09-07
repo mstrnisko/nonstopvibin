@@ -1,0 +1,52 @@
+# Dependencies, builds, downloaded binaries, and local research
+node_modules/
+/dist/
+/release/
+/.vendor/
+/.research/
+/.playwright-cli/
+/.codex/
+/.claude/
+/.idea/
+
+# Local account data, credentials, signing material, and environment overrides
+/.runtime/
+/.test-runtime/
+.env
+.env.*
+!.env.example
+!.env.*.example
+*.key
+*.pem
+*.p12
+*.pfx
+*.mobileprovision
+*.sqlite
+*.sqlite-*
+*.sqlite3
+*.sqlite3-*
+*.db
+*.db-*
+auth.json
+credentials.json
+tokens.json
+id_rsa
+id_ed25519
+.vercel/
+
+# Generated quality/security evidence (can contain sensitive source excerpts)
+/coverage/
+/test-results/
+/playwright-report/
+/artifacts/
+*.tsbuildinfo
+.eslintcache
+*.log
+*.sarif
+*.jsonl
+*.heapsnapshot
+*.cpuprofile
+.DS_Store
+
+# Keep .deepsec config, lockfile, and curated context; its own ignore rules
+# exclude scanner state, findings, traces, credentials, and reports.

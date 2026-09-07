@@ -1,0 +1,203 @@
+/** Decoded JSON. Object values may be undefined so partial records and optional fields fit without casts. */
+export type Json =
+  | string
+  | number
+  | boolean
+  | null
+  | Json[]
+  | { [key: string]: Json | undefined };
+export type JsonObject = { [key: string]: Json | undefined };
+type Strategy = "round-robin" | "fill-first";
+export type OAuthProvider = "codex" | "claude" | "antigravity" | "kimi" | "xai";
+export type Provider =
+  | OAuthProvider
+  | "opencode-go"
+  | "openai"
+  | "anthropic"
+  | "gemini"
+  | "custom";
+export type Protocol = "openai" | "anthropic" | "responses";
+export interface Profile {
+  id: string;
+  slug: string;
+  name: string;
+  color: string;
+  strategy: Strategy;
+  sessionAffinity: boolean;
+  enabled: boolean;
+  createdAt: string;
+}
+export interface QuotaWindow {
+  label: string;
+  remainingPercent: number | null;
+  resetsAt: string | null;
+  /** Limits one model only; never decides whether the whole account is out. */
+  scoped?: true;
+}
+export interface Quota {
+  status: "available" | "unavailable" | "error";
+  windows: QuotaWindow[];
+  checkedAt: string;
+  error?: string;
+  plan?: string;
+}
+export interface SeatIdentity {
+  accountUuid?: string;
+  organizationUuid?: string;
+  organizationName?: string;
+}
+export interface Account extends SeatIdentity {
+  id: string;
+  name: string;
+  provider: Provider | string;
+  email?: string;
+  kind: "oauth" | "api-key";
+  disabled: boolean;
+  status: string;
+  priority: number;
+  authIndex?: string;
+  quota?: Quota;
+  prefix?: string;
+  modelCount?: number;
+}
+export interface ApiAccount {
+  id: string;
+  name: string;
+  provider: Provider;
+  baseUrl: string;
+  prefix: string;
+  models: Array<{ id: string; protocol: Protocol }>;
+  disabled: boolean;
+}
+export interface UsageRecord {
+  id: string;
+  profileId: string;
+  timestamp: string;
+  provider: string;
+  model: string;
+  account: string;
+  inputTokens: number;
+  outputTokens: number;
+  cachedTokens: number;
+  reasoningTokens: number;
+  cacheWriteTokens: number;
+  totalTokens: number;
+  latencyMs: number;
+  failed: boolean;
+  statusCode: number;
+  stream: boolean;
+}
+export interface UsageSummary {
+  requests: number;
+  failed: number;
+  inputTokens: number;
+  outputTokens: number;
+  cachedTokens: number;
+  reasoningTokens: number;
+  totalTokens: number;
+}
+export interface ProfileState extends Profile {
+  runtime: "stopped" | "starting" | "running" | "error";
+  error?: string;
+  accounts: Account[];
+  usage: UsageSummary;
+  endpoint: string;
+  lastSyncedAt?: string;
+}
+export interface AppState {
+  profiles: ProfileState[];
+  coreVersion: string;
+  coreAvailable: boolean;
+  gateway: string;
+  storage: string;
+  version: string;
+  desktop: boolean;
+  errors: string[];
+}
+export interface Model {
+  id: string;
+  owned_by?: string;
+  metadata?: {
+    name: string;
+    context: number;
+    output: number;
+    inputLimit?: number;
+    input: Array<"text" | "image">;
+    reasoning: boolean;
+    toolCall: boolean;
+    cost?: {
+      input: number;
+      output: number;
+      cache_read?: number;
+      cache_write?: number;
+      tiers?: Array<{
+        input: number;
+        output: number;
+        cache_read?: number;
+        cache_write?: number;
+        tier: { type: "context"; size: number };
+      }>;
+    };
+    source: string;
+    fetchedAt: string;
+  };
+}
+export interface ImportSource extends SeatIdentity {
+  id: string;
+  fileName: string;
+  provider: string;
+  email?: string;
+  source: string;
+}
+export interface OAuthSession {
+  profileId: string;
+  provider: OAuthProvider;
+  url: string;
+  state: string;
+  startedAt: number;
+  userCode?: string;
+  expiresAt?: number;
+  reconnectAccountId?: string;
+}
+export interface OAuthReview {
+  account: Account;
+  action: "add" | "reconnect" | "blocked";
+  message?: string;
+  existingProfileId?: string;
+}
+export type OAuthStatus =
+  | { status: "wait" }
+  | { status: "review"; review: OAuthReview }
+  | { status: "ok"; account?: Account; reconnected?: boolean }
+  | { status: "error"; error: string };
+export type Agent = "pi" | "codex" | "opencode" | "claude";
+export interface AgentSetupInput {
+  agent: Agent;
+  projectDirectory?: string;
+  /** Claude Code and Codex: also offer models from other providers. */
+  otherProviders?: boolean;
+}
+export interface AgentSetup extends AgentSetupInput {
+  models: string[];
+  needsReconnect?: boolean;
+  projects?: string[];
+  command: string;
+  files: string[];
+  provider: string;
+  instructions: string;
+}
+export interface DesktopBridge {
+  bootstrap(): Promise<{ token: string; desktop: boolean }>;
+  openExternal(url: string): Promise<void>;
+  copy(text: string): Promise<void>;
+  showWindow(profileId?: string): Promise<void>;
+  setLoginItem(enabled: boolean): Promise<boolean>;
+  getLoginItem(): Promise<boolean>;
+  revealData(): Promise<void>;
+  chooseProject(): Promise<string | null>;
+}
+declare global {
+  interface Window {
+    nonstopvibin?: DesktopBridge;
+  }
+}

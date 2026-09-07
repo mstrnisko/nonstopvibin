@@ -1,0 +1,399 @@
+.connect-page {
+  width: min(100%, 72rem);
+  align-self: center;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+}
+
+.connect-intro {
+  margin: 2px 0 14px;
+}
+
+.connect-intro h2 {
+  font-size: var(--text-subheading);
+}
+
+.connect-intro p {
+  margin-top: 3px;
+  color: var(--ink-3);
+  font-size: var(--text-body);
+}
+
+.endpoint-panel {
+  overflow: hidden;
+  background: var(--bg-0);
+}
+
+.endpoint-row {
+  min-height: 58px;
+  padding: 10px 12px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.endpoint-row + .endpoint-row {
+  border-top: 1px solid var(--line);
+}
+
+.endpoint-row > div:first-child {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.endpoint-row code {
+  color: var(--ink);
+  overflow-wrap: anywhere;
+}
+
+.endpoint-actions {
+  display: flex;
+  gap: 7px;
+  flex-shrink: 0;
+}
+
+.scope-note,
+.key-storage-note {
+  font-size: var(--text-caption);
+  color: var(--ink-3);
+}
+
+.key-storage-note {
+  margin-top: 20px;
+}
+
+.model-catalog {
+  margin: 0 0 20px;
+}
+
+.model-catalog > p {
+  max-width: 72ch;
+  margin: 10px 0;
+  color: var(--ink-3);
+}
+
+.catalog-search {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.catalog-search .field {
+  flex: 1 1 16rem;
+}
+
+.catalog-models {
+  list-style: none;
+  padding: 0;
+  max-height: 24rem;
+  overflow-y: auto;
+}
+
+.catalog-models li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--line);
+}
+
+.catalog-models code {
+  overflow-wrap: anywhere;
+}
+
+.scope-note {
+  margin: 9px 0 15px;
+}
+
+.agent-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0 24px;
+  border-bottom: 1px solid var(--line);
+  margin-bottom: 18px;
+}
+
+.agent-tabs button {
+  position: relative;
+  flex: 0 0 auto;
+  min-height: 2.75rem;
+  padding: 7px 0 9px;
+  border: 0;
+  background: transparent;
+  color: var(--ink-3);
+  font-family: var(--sans);
+  font-size: var(--text-body);
+}
+
+.agent-tabs button:hover {
+  color: var(--ink);
+}
+
+.agent-tabs button.active {
+  color: var(--ink);
+  font-weight: 600;
+}
+
+.agent-tabs button.active::after {
+  content: "";
+  position: absolute;
+  height: 2px;
+  left: 0;
+  right: 0;
+  bottom: -1px;
+  background: var(--amber);
+}
+
+.agent-tabs button:focus-visible {
+  box-shadow: inset 0 0 0 2px var(--amber);
+}
+
+.quick-setup {
+  max-width: 72rem;
+}
+
+.quick-setup > p,
+.setup-launch > p,
+.setup-details > p,
+.config-instructions > p {
+  max-width: 72ch;
+  color: var(--ink-3);
+  font-size: var(--text-body);
+  margin-top: 7px;
+}
+
+.step-heading {
+  display: flex;
+  align-items: baseline;
+  gap: 11px;
+  margin: 18px 0 8px;
+}
+
+.step-number {
+  flex: 0 0 18px;
+  font-family: var(--mono);
+  font-size: var(--text-caption);
+  color: var(--amber-text);
+  font-variant-numeric: tabular-nums;
+}
+
+.setup-caveat {
+  max-width: 72ch;
+  margin-top: 10px;
+  color: var(--ink-3);
+  font-size: var(--text-caption);
+}
+
+.setup-project {
+  margin-top: 14px;
+}
+
+.setup-option {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24px;
+  max-width: 44rem;
+  margin-top: 18px;
+  padding: 14px 0;
+  border-top: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+}
+
+.setup-option label {
+  font-weight: 500;
+  color: var(--ink);
+}
+
+.setup-option p {
+  margin-top: 3px;
+  max-width: 60ch;
+  color: var(--ink-3);
+  font-size: var(--text-caption);
+}
+
+.setup-option input {
+  flex-shrink: 0;
+}
+
+.setup-note {
+  max-width: 72ch;
+  margin-top: 12px;
+  color: var(--ink-2);
+  font-size: var(--text-caption);
+}
+
+.setup-project .field {
+  margin-bottom: 0;
+}
+
+.setup-project .field + .field {
+  margin-top: 12px;
+}
+
+.setup-project-input {
+  display: flex;
+  gap: 8px;
+}
+
+.setup-project-input input,
+.setup-project-input .select {
+  min-width: 0;
+  flex: 1;
+}
+
+.setup-project-input button {
+  flex-shrink: 0;
+}
+
+.setup-actions,
+.setup-check {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin: 15px 0;
+}
+
+.setup-check {
+  margin: 12px 0 4px;
+}
+
+.setup-check span {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--ink-3);
+  font-family: var(--mono);
+  font-size: var(--text-caption);
+}
+
+.setup-check span svg,
+.connection-note svg {
+  color: var(--green);
+}
+
+.setup-launch {
+  margin-top: 8px;
+}
+
+.setup-launch h3 {
+  margin-bottom: 8px;
+  font-size: var(--text-body);
+  font-weight: 600;
+}
+
+.setup-details ul {
+  margin: 8px 0;
+  padding-left: 22px;
+  color: var(--ink-2);
+}
+
+.setup-details li + li {
+  margin-top: 4px;
+}
+
+.setup-details {
+  margin-top: 12px;
+}
+
+.manual-setup {
+  margin-top: 28px;
+  padding-top: 16px;
+  border-top: 1px solid var(--line);
+  color: var(--ink-2);
+}
+
+.manual-setup > summary {
+  margin-bottom: 13px;
+}
+
+.config-instructions {
+  padding-top: 2px;
+  border-top: 1px solid var(--line);
+}
+
+.code-panel {
+  margin-top: 12px;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--bg-0);
+}
+
+.code-toolbar {
+  min-height: 36px;
+  padding: 5px 8px 5px 12px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  border-bottom: 1px solid var(--line);
+  color: var(--ink-3);
+  font-family: var(--mono);
+  font-size: var(--text-caption);
+}
+
+.code-panel pre {
+  max-height: 320px;
+  padding: 14px 12px;
+  overflow: auto;
+  color: var(--ink-2);
+  line-height: 1.65;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.command-line {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  min-height: 48px;
+  padding: 8px 9px 8px 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--bg-0);
+}
+
+.command-line code {
+  flex: 1;
+  min-width: 0;
+  color: var(--ink-2);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.connection-note {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin: 16px 0 0;
+  color: var(--ink-3);
+  font-family: var(--mono);
+  font-size: var(--text-caption);
+}
+
+@media (max-width: 700px) {
+  .endpoint-row {
+    align-items: flex-start;
+  }
+
+  .agent-tabs {
+    gap: 18px;
+  }
+
+  .command-line {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .setup-project-input {
+    flex-wrap: wrap;
+  }
+}
