@@ -1,7 +1,8 @@
 # Security and release policy
 
-nonstopvibin handles subscription credentials and is currently a local development
-application. Passing automated checks is necessary but does not certify a release.
+nonstopvibin handles subscription credentials and is a local desktop application
+that is being prepared for its first public release. Passing automated checks is
+necessary but does not certify a release.
 
 ## Supported versions
 

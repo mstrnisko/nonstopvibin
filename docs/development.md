@@ -40,7 +40,7 @@ vendored copy is kept byte-identical to upstream and excluded from linting and
 formatting. `src/server/json.ts` holds the shared `Json` boundary accessors the
 rules steer toward instead of `unknown`, `typeof`, and casts.
 
-Linux needs a desktop secret service such as GNOME Keyring or KWallet. The app refuses Electron's plaintext fallback. GNOME may require an AppIndicator extension to show a tray icon; the View menu's quota command remains available. Native Linux runtime testing is still required. CI builds and tests on Linux and macOS.
+Linux needs a desktop secret service such as GNOME Keyring or KWallet. The app refuses Electron's plaintext fallback. GNOME may require an AppIndicator extension to show a tray icon; the View menu's quota command remains available. A headless AppImage launch in an Ubuntu 24.04 container reached Electron startup, but linux/amd64 emulation on Apple Silicon crashed in QEMU with SIGTRAP before the HTTP service responded; a real desktop Linux session with a keyring is still untested. CI builds and tests on Linux and macOS.
 
 The core installer pins 7.2.151 and all four supported archive checksums in
 `scripts/core-release.json`, then checks the downloaded release against those pins. Packaging also checks the core platform, architecture, and binary hash, preventing a Mac core from accidentally being included in a Linux build. No automatic upstream update runs. Change the pinned version and reviewed hashes together, reinstall it, and run the tests before packaging.
