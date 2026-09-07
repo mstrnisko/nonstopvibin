@@ -36,9 +36,11 @@ settings. `bun run check` checks TypeScript alone; `bun run format:check` checks
 The [anti-slop](https://github.com/dmmulroy/anti-slop) Oxlint plugin (v0.1.2, commit
 `e8c4880`, MIT) is vendored under `tools/oxlint/anti-slop/` and loaded through
 `@oxlint/plugins`. All fifteen rules run as errors on TypeScript sources; the
-vendored copy is kept byte-identical to upstream and excluded from linting and
-formatting. `src/server/json.ts` holds the shared `Json` boundary accessors the
-rules steer toward instead of `unknown`, `typeof`, and casts.
+vendored copy matches upstream except for one documented local change in
+`rules/no-runtime-typeof.ts`: the `typeof x === "undefined"` exemption requires
+an identifier operand. It remains excluded from linting and formatting.
+`src/server/json.ts` holds the shared `Json` boundary accessors the rules steer
+toward instead of `unknown`, `typeof`, and casts.
 
 Linux needs a desktop secret service such as GNOME Keyring or KWallet. The app refuses Electron's plaintext fallback. GNOME may require an AppIndicator extension to show a tray icon; the View menu's quota command remains available. In a headless Ubuntu 24.04 arm64 container without a secret service, the app refused with its credential-store message; a desktop Linux session with a keyring is still untested. The arm64 AppImage runtime needs `libz.so` from `zlib1g-dev`; this does not affect the published x64 artifacts. CI builds and tests on Linux and macOS.
 
