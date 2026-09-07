@@ -16,7 +16,7 @@ A local desktop app for macOS and Linux, built on [CLIProxyAPI](https://github.c
 
 - Keep account pools separate for work, personal use, or individual projects.
 - Route requests between accounts within a profile using round robin or fill first, with optional session affinity.
-- Connect Claude Code, Codex, OpenCode, and pi through their native configuration.
+- Connect Claude Code, Codex, and pi through their native configuration.
 - Check quota windows and reset times in the app or its menu bar popup.
 - Inspect request history and observed token usage, then export the displayed records as CSV.
 - Add subscriptions through provider sign-in, API keys, or existing CLIProxyAPI account files.
@@ -25,7 +25,7 @@ The gateway supports OpenAI Chat Completions and Responses, Anthropic Messages, 
 
 ## Get started
 
-This is a prerelease. macOS builds are unsigned and not notarized. Linux requires a secret service such as GNOME Keyring or KWallet; the app refuses plaintext credential storage.
+This is a prerelease. Until the first signed release, macOS shows an unsigned app warning. Linux requires a secret service such as GNOME Keyring or KWallet; the app refuses plaintext credential storage.
 
 ### Download
 
@@ -37,7 +37,7 @@ gh attestation verify <file> --owner samuelfarkas
 
 The app does not auto-update. Download new releases manually.
 
-On macOS, open the DMG and drag nonstopvibin to Applications. Downloaded unsigned builds may require **System Settings > Privacy & Security > Open Anyway**.
+On macOS, open the DMG and drag nonstopvibin to Applications. Until the first signed release, macOS shows an unsigned app warning and may require **System Settings > Privacy & Security > Open Anyway**.
 
 ### Build from source
 

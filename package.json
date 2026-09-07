@@ -25,7 +25,7 @@
     "test": "bun test",
     "build": "bun run check && vite build && bun scripts/build-desktop.mjs",
     "start": "electron .",
-    "package": "bun run build && electron-builder --dir --publish never",
+    "package": "bun run build && CSC_IDENTITY_AUTO_DISCOVERY=false electron-builder --dir --publish never",
     "dist:mac": "bun run build && electron-builder --mac dmg --publish never",
     "dist:linux": "bun run build && electron-builder --linux AppImage deb --publish never",
     "format": "oxfmt --write src tests scripts *.json *.ts index.html .github .vscode .oxlintrc.json .oxfmtrc.json",
@@ -118,7 +118,12 @@
       "target": [
         "dmg"
       ],
-      "identity": null
+      "hardenedRuntime": true,
+      "gatekeeperAssess": false,
+      "entitlements": "build/entitlements.mac.plist",
+      "entitlementsInherit": "build/entitlements.mac.plist",
+      "sign": "./scripts/sign-mac.cjs",
+      "notarize": true
     },
     "linux": {
       "category": "Development",

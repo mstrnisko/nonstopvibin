@@ -17,6 +17,12 @@ jobs:
             target: --linux AppImage deb
     runs-on: ${{ matrix.os }}
     timeout-minutes: 30
+    env:
+      CSC_LINK: ${{ secrets.CSC_LINK }}
+      CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
+      APPLE_ID: ${{ secrets.APPLE_ID }}
+      APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+      APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -32,7 +38,22 @@ jobs:
       - run: bun run quality
       - run: bun test
       - run: bun run build
-      - run: bun run electron-builder ${{ matrix.target }} --publish never
+      - if: runner.os == 'macOS' && env.CSC_LINK != ''
+        run: |
+          test -n "$APPLE_ID" && test -n "$APPLE_APP_SPECIFIC_PASSWORD" && test -n "$APPLE_TEAM_ID" || {
+            echo "Signed macOS releases require APPLE_ID, APPLE_APP_SPECIFIC_PASSWORD, and APPLE_TEAM_ID."
+            exit 1
+          }
+      - if: runner.os == 'macOS' && env.CSC_LINK != ''
+        run: bun run electron-builder ${{ matrix.target }} --publish never -c.forceCodeSigning=true
+      - if: runner.os == 'macOS' && env.CSC_LINK != ''
+        run: |
+          xcrun stapler validate release/mac-arm64/nonstopvibin.app
+          spctl -a -vv -t execute release/mac-arm64/nonstopvibin.app
+      - if: runner.os == 'macOS' && env.CSC_LINK == ''
+        run: bun run electron-builder ${{ matrix.target }} --publish never
+      - if: runner.os == 'Linux'
+        run: bun run electron-builder ${{ matrix.target }} --publish never
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: release-${{ matrix.os }}

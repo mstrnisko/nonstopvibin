@@ -68,8 +68,8 @@ target or hash, unexpected application files, credential files, stale desktop
 output, and missing licenses. Distribution commands use `--publish never`; they
 only create local artifacts. Packaged builds disable `ELECTRON_RUN_AS_NODE` and
 `NODE_OPTIONS`; ASAR integrity fuses remain disabled because unsigned builds failed
-to launch with them. See [SECURITY.md](../SECURITY.md) for signing and release
-requirements.
+to launch with them. Follow the [macOS release signing guide](release-signing.md)
+for package checks, then see [SECURITY.md](../SECURITY.md) for release requirements.
 
 Run `bun run security:install`, `bun run security:secrets`,
 `bun run security:history`, and `bun run security:deps` before sharing source.

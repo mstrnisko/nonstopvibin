@@ -68,10 +68,13 @@ TypeScript wrapper does not audit the upstream Go implementation or binary.
   reviewed assets/licenses, and the verified core. Exclude `.deepsec`, `.agents`,
   runtime data, environment files, signing keys, local review material, and raw scan
   reports.
-- Sign and notarize the macOS release with the owner's credentials; the current
-  `mac.identity: null` build is unsigned. 0.x prereleases are published unsigned and
-  say so in the README and release notes. Test installation/launch/quit/reopen on a
-  clean machine, and test Linux keyring behavior plus unavailable-keyring refusal.
+- Sign and notarize the macOS release with the owner's credentials. Follow the
+  [macOS release signing guide](docs/release-signing.md). Signing rewrites the core,
+  so `scripts/sign-mac.cjs` refreshes its packaged manifest hash after
+  `scripts/verify-package.cjs` checks the unsigned copy against the reviewed input.
+  Until the first signed release, say that builds are unsigned in the README and
+  release notes. Test installation, launch, quit, and reopen on a clean machine.
+  Test Linux keyring behavior and unavailable-keyring refusal.
 - Run end-to-end provider verification only with deliberately assigned test accounts.
   Keep live credentials and customer/work profiles out of reusable fixtures.
 - Resolve high/critical findings and document remaining limitations. Dependency and

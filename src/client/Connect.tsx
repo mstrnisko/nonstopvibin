@@ -9,7 +9,6 @@ import "./connect.css";
 const agentOptions = [
   ["claude", "Claude Code"],
   ["codex", "Codex"],
-  ["opencode", "OpenCode"],
   ["pi", "pi"],
 ] as const;
 

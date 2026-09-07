@@ -37,6 +37,9 @@ import {
 
 import { accountLabel } from "./format.ts";
 
+const hiddenProviders = new Set(["antigravity", "kimi", "xai"]);
+const exposedApiPresets = new Set(["opencode-go", "custom"]);
+
 export function AddSubscription({
   profile: initialProfile,
   profiles,
@@ -537,7 +540,11 @@ export function AddSubscription({
           {tab === "oauth" && (
             <div className="provider-options">
               {oauthProviders
-                .filter((p) => !claudeOnly || p.id === "claude")
+                .filter(
+                  (provider) =>
+                    !hiddenProviders.has(provider.id) &&
+                    (!claudeOnly || provider.id === "claude"),
+                )
                 .map((provider) => (
                   <button
                     className="provider-option"
@@ -617,10 +624,12 @@ export function AddSubscription({
                     setProtocol(p.protocol);
                     setModels(p.models);
                   }}
-                  options={apiPresets.map((p) => ({
-                    value: p.id,
-                    label: p.name,
-                  }))}
+                  options={apiPresets
+                    .filter((provider) => exposedApiPresets.has(provider.id))
+                    .map((provider) => ({
+                      value: provider.id,
+                      label: provider.name,
+                    }))}
                 />
               </label>
               <div className="form-grid">
