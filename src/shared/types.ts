@@ -40,6 +40,18 @@ export interface Quota {
   checkedAt: string;
   error?: string;
   plan?: string;
+  bankedResets?: number;
+}
+export interface ResetCredits {
+  available_count: number;
+  credits: Array<{
+    id: string;
+    reset_type: string;
+    status: string;
+    expires_at: string | null;
+    title?: string | null;
+    description?: string | null;
+  }>;
 }
 export interface SeatIdentity {
   accountUuid?: string;
@@ -86,6 +98,30 @@ export interface UsageRecord {
   failed: boolean;
   statusCode: number;
   stream: boolean;
+  upstreamModel?: string;
+  /** Non-overlapping core accounting; null means explicitly incomplete. */
+  pricingTokens?: PricingTokens | null;
+}
+export interface PricingTokens {
+  input: number;
+  cached: number;
+  cacheWrite: number;
+  output: number;
+  reasoning: number;
+}
+export interface UsageTotals {
+  requests: number;
+  pricedRequests: number;
+  usd: number;
+  normalizedRequests: number;
+  tokens: PricingTokens;
+}
+export interface UsagePricing {
+  totals?: UsageTotals;
+  usd: Record<string, number | null>;
+  fetchedAt: string | null;
+  refreshing: boolean;
+  eur: { rate: number; date: string } | null;
 }
 export interface UsageSummary {
   requests: number;
@@ -110,6 +146,7 @@ export interface AppState {
   coreAvailable: boolean;
   gateway: string;
   storage: string;
+  usageRetentionDays: number;
   version: string;
   desktop: boolean;
   errors: string[];
@@ -128,11 +165,13 @@ export interface Model {
     cost?: {
       input: number;
       output: number;
+      reasoning?: number;
       cache_read?: number;
       cache_write?: number;
       tiers?: Array<{
         input: number;
         output: number;
+        reasoning?: number;
         cache_read?: number;
         cache_write?: number;
         tier: { type: "context"; size: number };
@@ -191,6 +230,7 @@ export interface DesktopBridge {
   openExternal(url: string): Promise<void>;
   copy(text: string): Promise<void>;
   showWindow(profileId?: string): Promise<void>;
+  releaseWindow(): Promise<void>;
   setLoginItem(enabled: boolean): Promise<boolean>;
   getLoginItem(): Promise<boolean>;
   revealData(): Promise<void>;

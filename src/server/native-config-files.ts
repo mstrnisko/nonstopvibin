@@ -155,11 +155,24 @@ export function mergeNativeConfig(
   if (agent === "codex") {
     const split = (content: string | undefined) => {
       const preferences: string[] = [];
+      const state: string[] = [];
       let table = false;
+      let runtimeState = false;
       const connection = content
         ?.split("\n")
         .filter((line) => {
-          if (/^\s*\[/.test(line)) table = true;
+          if (/^\s*\[/.test(line)) {
+            table = true;
+            // Codex records hook approvals and model-picker notices here.
+            runtimeState =
+              /^\s*\[(?:hooks\.state(?:\."(?:[^"\\]|\\.)*")?|tui\.model_availability_nux)\]\s*(?:#.*)?$/.test(
+                line,
+              );
+          }
+          if (runtimeState) {
+            state.push(line);
+            return false;
+          }
           // Native /model owns scalar preferences, not provider/auth routing.
           if (
             !table &&
@@ -174,7 +187,7 @@ export function mergeNativeConfig(
         })
         .join("\n")
         .trim();
-      return { connection, preferences };
+      return { connection, preferences, state };
     };
     const saved = split(current);
     const old = split(previous);
@@ -188,9 +201,11 @@ export function mergeNativeConfig(
     const preferences = saved.preferences.filter(
       (line) => !old.preferences.includes(line),
     );
-    const result = [...preferences, ...(next === undefined ? [] : [next])].join(
-      "\n",
-    );
+    const result = [
+      ...preferences,
+      ...(next === undefined ? [] : [next]),
+      ...saved.state,
+    ].join("\n");
     return result || undefined;
   }
   if (agent !== "claude") {

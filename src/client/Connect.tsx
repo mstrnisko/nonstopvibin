@@ -73,11 +73,8 @@ export function Connect({ profile }: { profile: ProfileState }) {
   return (
     <div className="connect-page">
       <div className="connect-intro">
-        <h2>Use {profile.name} in your agent</h2>
-        <p>
-          Point your coding agent at this profile. It gets one key, one
-          endpoint, and every subscription you added here.
-        </p>
+        <h2>Connect your agent</h2>
+        <p>Use your {profile.name} subscriptions.</p>
       </div>
       {error && (
         <div className="inline-error" role="alert">
@@ -144,7 +141,7 @@ export function Connect({ profile }: { profile: ProfileState }) {
       </div>
       {models.length > 0 && (
         <details className="manual-setup">
-          <summary>Advanced · models and endpoint</summary>
+          <summary>Models & manual setup</summary>
           <div className="model-catalog">
             <p>
               {models.length} model{models.length === 1 ? "" : "s"} available in{" "}
@@ -252,7 +249,7 @@ export function Connect({ profile }: { profile: ProfileState }) {
           <p className="scope-note">
             Scoped to the {subscriptionCount} subscription
             {subscriptionCount === 1 ? "" : "s"} in {profile.name}. Never falls
-            back to another profile. Keys stay on this computer.
+            back to another profile.
           </p>
         </details>
       )}

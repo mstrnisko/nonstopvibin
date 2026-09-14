@@ -3,6 +3,7 @@ const { readFileSync, readdirSync } = require("node:fs");
 const { join, relative } = require("node:path");
 const { createHash } = require("node:crypto");
 const { listPackage, extractFile } = require("@electron/asar");
+const { Arch } = require("electron-builder");
 
 const privateFilePattern =
   /(?:^|\/)(?:\.env(?:\.[^/]*)?|\.runtime|\.test-runtime|\.deepsec|\.agents|\.git|\.codex|\.claude|\.playwright-cli|id_rsa|id_ed25519|auth\.json|credentials\.json|tokens\.json)(?:\/|$)|\.(?:pem|key|p12|pfx|sqlite3?(?:-(?:wal|shm))?|db(?:-(?:wal|shm))?|map)$/;
@@ -29,7 +30,7 @@ module.exports = async function verifyPackage(context) {
   for (const entry of entries) {
     assert.match(
       entry,
-      /^\/(dist(?:\/|$)|node_modules(?:\/|$)|package\.json$)/,
+      /^\/(dist(?:\/|$)|package\.json$)/,
       `Unexpected package entry: ${entry}`,
     );
     assert.doesNotMatch(
@@ -48,6 +49,7 @@ module.exports = async function verifyPackage(context) {
     "dist/desktop/main.cjs",
     "dist/desktop/preload.cjs",
     "dist/client/index.html",
+    "dist/licenses/THIRD-PARTY.txt",
   ])
     assert.ok(
       extractFile(archive, file).length,
@@ -55,10 +57,62 @@ module.exports = async function verifyPackage(context) {
     );
   assert.deepEqual(
     entries.filter((entry) => entry.startsWith("/dist/desktop/")),
-    ["/dist/desktop/main.cjs", "/dist/desktop/preload.cjs"],
+    [
+      "/dist/desktop/main.cjs",
+      "/dist/desktop/preload.cjs",
+      ...(context.electronPlatformName === "darwin"
+        ? ["/dist/desktop/tray-click-monitor"]
+        : []),
+    ],
     "Stale desktop build output",
   );
   const project = context.packager.projectDir;
+  if (context.electronPlatformName === "darwin") {
+    const monitor = readFileSync(
+      join(project, "dist/desktop/tray-click-monitor"),
+    );
+    assert.equal(
+      monitor.readUInt32LE(0),
+      0xfeedfacf,
+      "Click monitor must be a Mach-O executable",
+    );
+    assert.equal(
+      monitor.readUInt32LE(4),
+      context.arch === Arch.arm64 ? 0x0100000c : 0x01000007,
+      "Click monitor architecture differs from the package target",
+    );
+    // LC_BUILD_VERSION stores the deployment target as major.minor.patch bytes.
+    let minimum;
+    for (let offset = 32, i = 0; i < monitor.readUInt32LE(16); i++) {
+      assert.ok(
+        offset + 8 <= monitor.length,
+        "Invalid click monitor load command",
+      );
+      const size = monitor.readUInt32LE(offset + 4);
+      assert.ok(
+        size >= 8 && offset + size <= monitor.length,
+        "Invalid click monitor command size",
+      );
+      if (monitor.readUInt32LE(offset) === 0x32) {
+        assert.ok(size >= 24, "Invalid click monitor build version");
+        assert.equal(
+          monitor.readUInt32LE(offset + 8),
+          1,
+          "Click monitor must target macOS",
+        );
+        minimum = monitor.readUInt32LE(offset + 12);
+      }
+      offset += size;
+    }
+    assert.equal(minimum, 13 << 16, "Click monitor must target macOS 13.0");
+    assert.deepEqual(
+      readFileSync(
+        join(resources, "app.asar.unpacked/dist/desktop/tray-click-monitor"),
+      ),
+      monitor,
+      "Packaged click monitor differs from the built input",
+    );
+  }
   for (const file of ["cli-proxy-api", "manifest.json"])
     assert.deepEqual(
       readFileSync(join(resources, "core", file)),

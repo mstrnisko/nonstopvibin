@@ -2,12 +2,12 @@ import { useEffect, useState } from "react";
 import { ChevronRight } from "lucide-react";
 import type { AppState, ProfileState } from "../shared/types.ts";
 import { api } from "./api.ts";
-import { CopyButton } from "./components.tsx";
+import { Select, useKeepDraft } from "./components.tsx";
 import "./settings.css";
 
 export function SettingsPage({
   state,
-  profile,
+  profile: initialProfile,
   refresh,
   onError,
 }: {
@@ -17,8 +17,17 @@ export function SettingsPage({
   onError(message: string): void;
 }) {
   const [login, setLogin] = useState(false);
-  const [name, setName] = useState(profile?.name ?? "");
-  const [saved, setSaved] = useState(false);
+  const [selectedProfile, setSelectedProfile] = useState(
+    initialProfile?.id ?? "",
+  );
+  const profile =
+    state.profiles.find((p) => p.id === selectedProfile) ?? state.profiles[0];
+  const [retention, setRetention] = useState(state.usageRetentionDays);
+  const [savingRetention, setSavingRetention] = useState(false);
+  useKeepDraft(savingRetention || retention !== state.usageRetentionDays);
+  useEffect(() => {
+    setRetention(state.usageRetentionDays);
+  }, [state.usageRetentionDays]);
   useEffect(() => {
     if (window.nonstopvibin)
       window.nonstopvibin
@@ -26,199 +35,306 @@ export function SettingsPage({
         .then(setLogin)
         .catch((e) => onError(e.message));
   }, [onError]);
-  useEffect(() => {
-    setName(profile?.name ?? "");
-  }, [profile?.id, profile?.name]);
   return (
     <div className="settings-page">
       <header className="page-header">
         <div className="page-title">
           <h1>Settings</h1>
-          <code>nonstopvibin {state.version} · local</code>
+          <code>NonstopVibin {state.version} · local</code>
         </div>
       </header>
       <div className="page-body">
         <div className="settings-content">
-          <section className="settings-section">
-            <h2>Desktop</h2>
-            <div className="setting-row">
-              <div className="setting-copy">
-                <h3>Start at login</h3>
-                <p>
-                  {state.desktop
-                    ? "Keep the proxy and quota menu available when you sign in."
-                    : "Available in the desktop app, along with the menu-bar quota view."}
-                </p>
+          <section
+            className="settings-scope"
+            aria-labelledby="profile-settings-heading"
+          >
+            <div className="settings-scope-header">
+              <div>
+                <h2 id="profile-settings-heading">Profile settings</h2>
+                <p>Changes apply only to the selected profile.</p>
               </div>
-              <input
-                type="checkbox"
-                role="switch"
-                aria-label="Start at login"
-                disabled={!state.desktop}
-                checked={login}
-                onChange={async (e) => {
-                  try {
-                    setLogin(
-                      await window.nonstopvibin!.setLoginItem(e.target.checked),
-                    );
-                  } catch (err) {
-                    onError(
-                      err instanceof Error
-                        ? err.message
-                        : "Could not change login setting.",
-                    );
-                  }
-                }}
-              />
-            </div>
-            <div className="setting-row">
-              <div className="setting-copy">
-                <h3>Closing the window</h3>
-                <p>
-                  The desktop app stays in your menu bar. Use Quit to stop all
-                  profile proxies.
-                </p>
-              </div>
-            </div>
-          </section>
-          {profile && (
-            <section className="settings-section">
-              <h2>{profile.name}</h2>
-              <div className="setting-row">
-                <div className="setting-copy">
-                  <h3>Profile name</h3>
-                  <p>
-                    Renaming keeps the same endpoint and API key, so agent
-                    setups continue to work.
-                  </p>
-                </div>
-                <form
-                  className="rename-form"
-                  aria-label="Rename profile"
-                  onSubmit={async (e) => {
-                    e.preventDefault();
-                    try {
-                      await api(`/profiles/${profile.id}`, "PATCH", { name });
-                      await refresh();
-                      setSaved(true);
-                      setTimeout(() => setSaved(false), 2500);
-                    } catch (err) {
-                      onError(
-                        err instanceof Error ? err.message : "Rename failed.",
-                      );
-                    }
-                  }}
-                >
-                  <label className="visually-hidden" htmlFor="profile-name">
-                    Profile name
-                  </label>
-                  <input
-                    id="profile-name"
-                    required
-                    maxLength={60}
-                    value={name}
-                    onChange={(e) => setName(e.target.value)}
+              {profile && (
+                <div className="settings-profile-picker">
+                  <label htmlFor="settings-profile">Edit profile</label>
+                  <Select
+                    id="settings-profile"
+                    value={profile.id}
+                    onValueChange={setSelectedProfile}
+                    options={state.profiles.map((p) => ({
+                      value: p.id,
+                      label: p.name,
+                    }))}
                   />
-                  <button className="button">
-                    {saved ? "Saved" : "Save name"}
-                  </button>
-                </form>
+                </div>
+              )}
+            </div>
+            {profile ? (
+              <ProfileSettings
+                key={profile.id}
+                profile={profile}
+                refresh={refresh}
+                onError={onError}
+              />
+            ) : (
+              <p className="field-note">
+                Create a profile to configure its settings.
+              </p>
+            )}
+          </section>
+          <section
+            className="settings-scope"
+            aria-labelledby="global-settings-heading"
+          >
+            <div className="settings-scope-header">
+              <div>
+                <h2 id="global-settings-heading">Global settings</h2>
+                <p>Applies to this app and all profiles.</p>
               </div>
+            </div>
+            <section className="settings-section">
+              <h3>Desktop</h3>
               <div className="setting-row">
                 <div className="setting-copy">
-                  <h3>Keep sessions on the same account</h3>
+                  <h3>Start at login</h3>
                   <p>
-                    Prefer the same account within a conversation to reuse
-                    prompt caches. Failover stays in this profile.
+                    {state.desktop
+                      ? "Keep the proxy and quota menu available when you sign in."
+                      : "Available in the desktop app, along with the menu-bar quota view."}
                   </p>
                 </div>
                 <input
                   type="checkbox"
                   role="switch"
-                  aria-label="Keep sessions on the same account"
-                  checked={profile.sessionAffinity}
+                  aria-label="Start at login"
+                  disabled={!state.desktop}
+                  checked={login}
                   onChange={async (e) => {
                     try {
-                      await api(`/profiles/${profile.id}`, "PATCH", {
-                        sessionAffinity: e.target.checked,
-                      });
-                      await refresh();
+                      setLogin(
+                        await window.nonstopvibin!.setLoginItem(
+                          e.target.checked,
+                        ),
+                      );
                     } catch (err) {
                       onError(
-                        err instanceof Error ? err.message : "Update failed.",
+                        err instanceof Error
+                          ? err.message
+                          : "Could not change login setting.",
                       );
                     }
                   }}
                 />
               </div>
-            </section>
-          )}
-          <section className="settings-section">
-            <h2>Under the hood</h2>
-            <dl className="settings-facts">
-              <dt>Proxy core</dt>
-              <dd>
-                CLIProxyAPI {state.coreVersion}{" "}
-                <span
-                  className={state.coreAvailable ? "text-good" : "text-bad"}
-                >
-                  {state.coreAvailable ? "· Bundled" : "· Missing"}
-                </span>
-              </dd>
-              <dt>Agent API</dt>
-              <dd>
-                <code>{state.gateway}/v1</code>
-                <CopyButton text={`${state.gateway}/v1`} onError={onError} />
-              </dd>
-              <dt>Credential vault</dt>
-              <dd>{state.storage}</dd>
-              <dt>OAuth storage</dt>
-              <dd>
-                Separate directories per profile, readable only by your OS user.
-              </dd>
-              <dt>Quota refresh</dt>
-              <dd>
-                Every 2 minutes while running. No model requests are used to
-                check quotas.
-              </dd>
-              <dt>Usage history</dt>
-              <dd>Local SQLite. No prompt or response content is recorded.</dd>
-            </dl>
-            {state.desktop && (
-              <button
-                className="button"
-                onClick={async () => {
-                  try {
-                    await window.nonstopvibin!.revealData();
-                  } catch (e) {
-                    onError(
-                      e instanceof Error
-                        ? e.message
-                        : "Could not open data folder.",
-                    );
-                  }
-                }}
-              >
-                Open data folder <ChevronRight size={14} />
-              </button>
-            )}
-          </section>
-          {state.errors.length > 0 && (
-            <section className="settings-section">
-              <h2>Recent service notices</h2>
-              <div className="settings-notices">
-                {state.errors.map((e) => (
-                  <p key={e} className="inline-error">
-                    {e}
+              <div className="setting-row">
+                <div className="setting-copy">
+                  <h3>Closing the window</h3>
+                  <p>
+                    The desktop app stays in your menu bar. Use Quit to stop all
+                    profile proxies.
                   </p>
-                ))}
+                </div>
               </div>
             </section>
-          )}
-          <p className="settings-footer">
-            Local software · subscriptions remain with their providers
+            <section className="settings-section">
+              <h3>Activity history</h3>
+              <p className="field-note">
+                History stays on this device. Prompts and responses are never
+                recorded.
+              </p>
+              <div className="setting-row">
+                <div className="setting-copy">
+                  <h3>Keep request history</h3>
+                  <p>
+                    Applying a limit permanently deletes older activity and its
+                    token totals. Cleanup runs daily. Keep all history is the
+                    default.
+                  </p>
+                </div>
+                <form
+                  className="rename-form"
+                  onSubmit={async (event) => {
+                    event.preventDefault();
+                    setSavingRetention(true);
+                    try {
+                      await api("/usage-retention", "PUT", { days: retention });
+                      await refresh();
+                    } catch (error) {
+                      onError(
+                        error instanceof Error
+                          ? error.message
+                          : "Could not change history retention.",
+                      );
+                    } finally {
+                      setSavingRetention(false);
+                    }
+                  }}
+                >
+                  <label className="visually-hidden" htmlFor="usage-retention">
+                    Activity history retention
+                  </label>
+                  <Select
+                    id="usage-retention"
+                    value={String(retention)}
+                    disabled={savingRetention}
+                    onValueChange={(value) => setRetention(Number(value))}
+                    options={[
+                      { value: "0", label: "Keep all history" },
+                      { value: "30", label: "30 days" },
+                      { value: "90", label: "90 days" },
+                      { value: "365", label: "1 year" },
+                    ]}
+                  />
+                  <button
+                    className="button"
+                    disabled={
+                      savingRetention || retention === state.usageRetentionDays
+                    }
+                  >
+                    Apply retention
+                  </button>
+                </form>
+              </div>
+            </section>
+            <section className="settings-section">
+              <div className="setting-row">
+                <div className="setting-copy">
+                  <h3>Start fresh</h3>
+                  <p>
+                    Quit NonstopVibin completely, delete its data folder, then
+                    reopen the app.
+                  </p>
+                  <p>
+                    To remove integrations too, first disconnect agents and
+                    disable Start at login.
+                  </p>
+                </div>
+                {state.desktop && (
+                  <button
+                    className="button"
+                    onClick={async () => {
+                      try {
+                        await window.nonstopvibin!.revealData();
+                      } catch (e) {
+                        onError(
+                          e instanceof Error
+                            ? e.message
+                            : "Could not open data folder.",
+                        );
+                      }
+                    }}
+                  >
+                    Open data folder <ChevronRight size={14} />
+                  </button>
+                )}
+              </div>
+            </section>
+            {state.errors.length > 0 && (
+              <section className="settings-section">
+                <h3>Recent service notices</h3>
+                <div className="settings-notices">
+                  {state.errors.map((e) => (
+                    <p key={e} className="inline-error">
+                      {e}
+                    </p>
+                  ))}
+                </div>
+              </section>
+            )}
+          </section>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ProfileSettings({
+  profile,
+  refresh,
+  onError,
+}: {
+  profile: ProfileState;
+  refresh(): Promise<void>;
+  onError(message: string): void;
+}) {
+  const [name, setName] = useState(profile.name);
+  const [saved, setSaved] = useState(false);
+  const [saving, setSaving] = useState(false);
+  useKeepDraft(name !== profile.name || saving);
+  useEffect(() => {
+    setName(profile.name);
+  }, [profile.name]);
+  useEffect(() => {
+    if (!saved) return;
+    const timer = setTimeout(() => setSaved(false), 2500);
+    return () => clearTimeout(timer);
+  }, [saved]);
+  return (
+    <div className="settings-section">
+      <div className="setting-row">
+        <div className="setting-copy">
+          <h3>Profile name</h3>
+          <p>
+            Renaming keeps the same endpoint and API key, so agent setups
+            continue to work.
           </p>
         </div>
+        <form
+          className="rename-form"
+          aria-label="Rename profile"
+          onSubmit={async (e) => {
+            e.preventDefault();
+            setSaving(true);
+            try {
+              await api(`/profiles/${profile.id}`, "PATCH", { name });
+              await refresh();
+              setSaved(true);
+            } catch (err) {
+              onError(err instanceof Error ? err.message : "Rename failed.");
+            } finally {
+              setSaving(false);
+            }
+          }}
+        >
+          <label className="visually-hidden" htmlFor="profile-name">
+            Profile name
+          </label>
+          <input
+            id="profile-name"
+            required
+            maxLength={60}
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+          />
+          <button className="button" disabled={saving}>
+            {saving ? "Saving…" : saved ? "Saved" : "Save name"}
+          </button>
+        </form>
+      </div>
+      <div className="setting-row">
+        <div className="setting-copy">
+          <h3>Keep sessions on the same account</h3>
+          <p>
+            Prefer the same account within a conversation to reuse prompt
+            caches. Failover stays in this profile.
+          </p>
+        </div>
+        <input
+          type="checkbox"
+          role="switch"
+          aria-label="Keep sessions on the same account"
+          checked={profile.sessionAffinity}
+          onChange={async (e) => {
+            try {
+              await api(`/profiles/${profile.id}`, "PATCH", {
+                sessionAffinity: e.target.checked,
+              });
+              await refresh();
+            } catch (err) {
+              onError(err instanceof Error ? err.message : "Update failed.");
+            }
+          }}
+        />
       </div>
     </div>
   );

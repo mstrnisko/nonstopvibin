@@ -1,7 +1,8 @@
 {
   "name": "nonstopvibin",
   "version": "0.1.1",
-  "description": "Your subscriptions, in their own space.",
+  "updatesEnabled": false,
+  "description": "A local desktop proxy for using AI subscriptions with coding agents.",
   "private": true,
   "homepage": "https://github.com/samuelfarkas/nonstopvibin",
   "repository": {
@@ -23,10 +24,11 @@
     "core:install": "bun scripts/install-core.mjs",
     "check": "tsc --noEmit",
     "test": "bun test",
+    "test:desktop": "bun run build && bun tests/desktop-smoke.cjs",
     "build": "bun run check && vite build && bun scripts/build-desktop.mjs",
     "start": "electron .",
-    "package": "bun run build && CSC_IDENTITY_AUTO_DISCOVERY=false electron-builder --dir --publish never",
-    "dist:mac": "bun run build && electron-builder --mac dmg --publish never",
+    "package": "bun run build && CSC_IDENTITY_AUTO_DISCOVERY=false electron-builder --dir --publish never --config.electronDist=node_modules/electron/dist",
+    "dist:mac": "bun run build && electron-builder --mac dmg zip --publish never",
     "dist:linux": "bun run build && electron-builder --linux AppImage deb --publish never",
     "format": "oxfmt --write src tests scripts *.json *.ts index.html .github .vscode .oxlintrc.json .oxfmtrc.json",
     "lint": "oxlint . --max-warnings 0",
@@ -48,6 +50,7 @@
     "@fontsource-variable/geist-mono": "^5.3.0",
     "@radix-ui/react-dialog": "^1.1.15",
     "@radix-ui/react-select": "^2.3.7",
+    "electron-updater": "6.8.9",
     "lucide-react": "1.41.0",
     "react": "19.2.8",
     "react-dom": "19.2.8",
@@ -71,8 +74,11 @@
     "vite": "8.2.2"
   },
   "build": {
+    "asarUnpack": [
+      "dist/desktop/tray-click-monitor"
+    ],
     "appId": "app.nonstopvibin.desktop",
-    "productName": "nonstopvibin",
+    "productName": "NonstopVibin",
     "artifactName": "${productName}-${version}-${os}-${arch}.${ext}",
     "publish": [
       {
@@ -87,6 +93,7 @@
     "files": [
       "dist/**/*",
       "package.json",
+      "!node_modules/**/*",
       "!**/*.map"
     ],
     "extraResources": [
@@ -120,7 +127,8 @@
       "category": "public.app-category.developer-tools",
       "icon": "public/icon.icns",
       "target": [
-        "dmg"
+        "dmg",
+        "zip"
       ],
       "hardenedRuntime": true,
       "gatekeeperAssess": false,

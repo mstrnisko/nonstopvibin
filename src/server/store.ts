@@ -22,6 +22,7 @@ export class Store {
   readonly db: DatabaseSync;
   readonly directory: string;
   readonly codec: SecretCodec;
+  usageGeneration = 0;
   private summaries = new Map<string, UsageSummary>();
   constructor(directory: string, codec: SecretCodec) {
     this.directory = directory;
@@ -37,6 +38,7 @@ export class Store {
       CREATE TABLE IF NOT EXISTS api_accounts (id TEXT PRIMARY KEY, profile_id TEXT NOT NULL REFERENCES profiles(id), body TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS quotas (profile_id TEXT NOT NULL, account_id TEXT NOT NULL, body TEXT NOT NULL, PRIMARY KEY(profile_id,account_id));
       CREATE TABLE IF NOT EXISTS usage (id TEXT PRIMARY KEY, profile_id TEXT NOT NULL, timestamp TEXT NOT NULL, body TEXT NOT NULL);
+      CREATE INDEX IF NOT EXISTS usage_profile_sequence ON usage(profile_id);
       CREATE INDEX IF NOT EXISTS usage_profile_time ON usage(profile_id,timestamp);
       CREATE TABLE IF NOT EXISTS settings (id TEXT PRIMARY KEY, value TEXT NOT NULL);
     `);
@@ -70,8 +72,8 @@ export class Store {
         .replace(/[\u0300-\u036f]/g, "")
         .toLowerCase()
         .replace(/[^a-z0-9]+/g, "-")
-        .replace(/^-|-$/g, "")
-        .slice(0, 40) || "profile";
+        .slice(0, 40)
+        .replace(/^-|-$/g, "") || "profile";
     const slugs = new Set(this.profiles().map((p) => p.slug));
     let slug = stem;
     let suffix = 2;
@@ -81,7 +83,7 @@ export class Store {
       slug,
       name,
       color,
-      strategy: "round-robin",
+      strategy: "fill-first",
       sessionAffinity: true,
       enabled: false,
       createdAt: new Date().toISOString(),
@@ -112,7 +114,8 @@ export class Store {
   }
   saveAccountMetadata(profileId: string, accounts: Account[]): void {
     this.db
-      .prepare("INSERT OR REPLACE INTO settings VALUES (?,?)")
+      .prepare(`INSERT INTO settings VALUES (?,?) ON CONFLICT(id) DO UPDATE
+        SET value=excluded.value WHERE value!=excluded.value`)
       .run(`accounts:${profileId}`, JSON.stringify(accounts));
   }
   accountMetadata(profileId: string): Account[] {
@@ -132,6 +135,21 @@ export class Store {
     this.db
       .prepare("INSERT OR REPLACE INTO secrets VALUES (?,?)")
       .run(id, this.codec.encrypt(value));
+  }
+  resetRequestId(identity: string, creditId: string): string {
+    const key = `codex-reset:${JSON.stringify([identity, creditId])}`;
+    this.db
+      .prepare("INSERT OR IGNORE INTO settings VALUES (?,?)")
+      .run(key, randomUUID());
+    const row = this.db
+      .prepare("SELECT value FROM settings WHERE id=?")
+      .get(key);
+    return String(row?.value);
+  }
+  clearResetRequest(identity: string, creditId: string): void {
+    this.db
+      .prepare("DELETE FROM settings WHERE id=?")
+      .run(`codex-reset:${JSON.stringify([identity, creditId])}`);
   }
   apiAccounts(profileId: string): ApiAccount[] {
     return this.db
@@ -176,8 +194,8 @@ export class Store {
     const stmt = this.db.prepare(
       "INSERT OR IGNORE INTO usage VALUES (?,?,?,?)",
     );
-    const changedProfiles = this.transaction(() => {
-      const changed = new Set<string>();
+    const summaries = this.transaction(() => {
+      const updated = new Map<string, UsageSummary>();
       for (const r of records) {
         const result = stmt.run(
           r.id,
@@ -185,11 +203,26 @@ export class Store {
           r.timestamp,
           JSON.stringify(r),
         );
-        if (result.changes) changed.add(r.profileId);
+        if (!result.changes) continue;
+        let summary = updated.get(r.profileId);
+        if (!summary) {
+          const cached = this.summaries.get(r.profileId);
+          if (!cached) continue;
+          summary = { ...cached };
+          updated.set(r.profileId, summary);
+        }
+        summary.requests++;
+        summary.failed += Number(r.failed);
+        summary.inputTokens += r.inputTokens;
+        summary.outputTokens += r.outputTokens;
+        summary.cachedTokens += r.cachedTokens;
+        summary.reasoningTokens += r.reasoningTokens;
+        summary.totalTokens += r.totalTokens;
       }
-      return changed;
+      return updated;
     });
-    for (const profileId of changedProfiles) this.summaries.delete(profileId);
+    // Publish only after commit; duplicates and rolled-back batches never change totals.
+    for (const [id, summary] of summaries) this.summaries.set(id, summary);
   }
   usage(profileId: string, since = "", limit = 300): UsageRecord[] {
     return this.db
@@ -199,9 +232,73 @@ export class Store {
       .all(profileId, since, limit)
       .map((r) => stored<UsageRecord>(r.body));
   }
+  usageSequence(): number {
+    return Number(
+      this.db
+        .prepare("SELECT coalesce(max(rowid),0) AS sequence FROM usage")
+        .get()?.sequence,
+    );
+  }
+  usageBatch(
+    profileId: string,
+    after: number,
+    through: number,
+  ): Array<{ sequence: number; record: UsageRecord }> {
+    return this.db
+      .prepare(`SELECT rowid AS sequence, body FROM usage INDEXED BY usage_profile_sequence
+      WHERE profile_id=? AND rowid>? AND rowid<=? ORDER BY rowid LIMIT 500`)
+      .all(profileId, after, through)
+      .map((row) => ({
+        sequence: Number(row.sequence),
+        record: stored<UsageRecord>(row.body),
+      }));
+  }
+  usageTimeBatch(
+    profileId: string,
+    since: string,
+    before: string,
+    through: number,
+    timestamp = since,
+    sequence = 0,
+  ): Array<{ sequence: number; record: UsageRecord }> {
+    // Seek ties by rowid, then later timestamps; a tuple filter rescans the prefix on each page.
+    if (timestamp < since) {
+      timestamp = since;
+      sequence = 0;
+    }
+    return this.db
+      .prepare(`SELECT rowid AS sequence, body, timestamp FROM usage INDEXED BY usage_profile_time
+      WHERE profile_id=? AND timestamp=? AND timestamp<? AND rowid>? AND rowid<=?
+      UNION ALL
+      SELECT rowid AS sequence, body, timestamp FROM usage INDEXED BY usage_profile_time
+      WHERE profile_id=? AND timestamp>? AND timestamp<? AND rowid<=?
+      ORDER BY timestamp,sequence LIMIT 500`)
+      .all(
+        profileId,
+        timestamp,
+        before,
+        sequence,
+        through,
+        profileId,
+        timestamp,
+        before,
+        through,
+      )
+      .map((row) => ({
+        sequence: Number(row.sequence),
+        record: stored<UsageRecord>(row.body),
+      }));
+  }
   summary(profileId: string, since = ""): UsageSummary {
-    const cached = since === "" ? this.summaries.get(profileId) : undefined;
+    // Activity periods are aggregated by UsagePrices; only state() needs this cache.
+    if (since) return this.readSummary(profileId, since);
+    const cached = this.summaries.get(profileId);
     if (cached) return cached;
+    const summary = this.readSummary(profileId, since);
+    this.summaries.set(profileId, summary);
+    return summary;
+  }
+  private readSummary(profileId: string, since: string): UsageSummary {
     const row = this.db
       .prepare(
         `SELECT count(*) AS requests,
@@ -223,8 +320,39 @@ export class Store {
       reasoningTokens: Number(row?.reasoningTokens ?? 0),
       totalTokens: Number(row?.totalTokens ?? 0),
     };
-    if (since === "") this.summaries.set(profileId, summary);
     return summary;
+  }
+  usageRetentionDays(): number {
+    const row = this.db
+      .prepare("SELECT value FROM settings WHERE id='usage-retention-days'")
+      .get();
+    return Number(row?.value ?? 0);
+  }
+  setUsageRetentionDays(days: number): void {
+    if (![0, 30, 90, 365].includes(days))
+      throw new AppError("Unsupported history retention.");
+    this.transaction(() => {
+      this.db
+        .prepare(
+          "INSERT OR REPLACE INTO settings VALUES ('usage-retention-days',?)",
+        )
+        .run(String(days));
+      this.pruneUsage();
+    });
+  }
+  pruneUsage(now = Date.now()): void {
+    const days = this.usageRetentionDays();
+    if (!days) return;
+    const cutoff = new Date(now - days * 86_400_000).toISOString();
+    const remove = this.db.prepare(
+      "DELETE FROM usage WHERE profile_id=? AND timestamp<?",
+    );
+    for (const profile of this.profiles()) {
+      if (remove.run(profile.id, cutoff).changes) {
+        this.usageGeneration++;
+        this.summaries.delete(profile.id);
+      }
+    }
   }
   close(): void {
     this.db.close();

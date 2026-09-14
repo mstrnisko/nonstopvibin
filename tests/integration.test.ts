@@ -3,13 +3,22 @@ import assert from "node:assert/strict";
 import http from "node:http";
 import { connect } from "node:net";
 import { once } from "node:events";
-import { mkdtemp, readFile, stat, rm } from "node:fs/promises";
+import {
+  mkdtemp,
+  readFile,
+  readdir,
+  stat,
+  rm,
+  mkdir,
+  writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import { ModelCatalog } from "../src/server/model-catalog.ts";
 import { Application } from "../src/server/server.ts";
 import type { Json, Profile } from "../src/shared/types.ts";
+import { record } from "../src/server/json.ts";
 
 let app: Application;
 let company: Profile;
@@ -137,7 +146,77 @@ after(async () => {
     });
   if (directory) await rm(directory, { recursive: true, force: true });
 });
+test("static assets revalidate without caching management responses", async () => {
+  const original = app.options.clientDirectory;
+  const client = join(directory, "static-fixture");
+  await mkdir(join(client, "assets"), { recursive: true });
+  await writeFile(join(client, "index.html"), "fixture page");
+  await writeFile(join(client, "assets/app-AbCd1234.js"), "fixture script");
+  app.options.clientDirectory = client;
+  try {
+    const first = await fetch(app.origin);
+    assert.equal(await first.text(), "fixture page");
+    assert.equal(first.headers.get("cache-control"), "no-cache");
+    const etag = first.headers.get("etag")!;
+    const restarted = await Application.create({
+      ...app.options,
+      directory: join(directory, "restart-fixture"),
+      port: 0,
+    });
+    try {
+      const fresh = await fetch(restarted.origin, {
+        headers: { "If-None-Match": etag },
+      });
+      assert.equal(
+        fresh.status,
+        200,
+        "unhashed assets revalidate across launches even with identical timestamps",
+      );
+      assert.notEqual(fresh.headers.get("etag"), etag);
+    } finally {
+      await restarted.close();
+    }
+    for (const match of [etag, etag.slice(2), `"other", ${etag}`, "*"]) {
+      const cached = await fetch(app.origin, {
+        headers: { "If-None-Match": match },
+      });
+      assert.equal(cached.status, 304);
+      assert.equal(await cached.text(), "");
+      assert.equal(cached.headers.get("etag"), etag);
+      assert.ok(cached.headers.has("content-security-policy"));
+    }
+    await writeFile(join(client, "index.html"), "updated fixture page");
+    const updated = await fetch(app.origin, {
+      headers: { "If-None-Match": etag },
+    });
+    assert.equal(updated.status, 200);
+    assert.equal(await updated.text(), "updated fixture page");
+    const asset = await fetch(`${app.origin}/assets/app-AbCd1234.js`);
+    assert.equal(await asset.text(), "fixture script");
+    assert.equal(
+      asset.headers.get("cache-control"),
+      "public, max-age=31536000, immutable",
+    );
+    const head = await fetch(app.origin, { method: "HEAD" });
+    assert.equal(head.status, 200);
+    assert.equal(await head.text(), "");
+    const state = await fetch(`${app.origin}/api/state`, {
+      headers: { Authorization: `Bearer ${app.token}`, "If-None-Match": "*" },
+    });
+    assert.equal(state.status, 200);
+    assert.equal(state.headers.get("cache-control"), "no-store");
+    const missing = await fetch(`${app.origin}/missing.js`, {
+      headers: { "If-None-Match": "*" },
+    });
+    assert.equal(missing.status, 404);
+  } finally {
+    app.options.clientDirectory = original;
+  }
+});
 test("real core launches with separate owner-only directories and a model catalog", async () => {
+  const config = record(await app.core.management(company.id, "/config"));
+  assert.equal(config["commercial-mode"], true);
+  assert.equal(config["usage-statistics-enabled"], true);
   assert.notEqual(app.core.port(company.id), app.core.port(personal.id));
   assert.ok(
     (await app.core.models(company.id)).some((m) => m.id === "fixture-model"),
@@ -155,6 +234,76 @@ test("real core launches with separate owner-only directories and a model catalo
     raw.includes(Buffer.from(app.store.secret(`${company.id}:client`))),
     false,
   );
+});
+
+test("usage retention management rejects profile keys and invalid limits", async () => {
+  const put = (key: string, days: number) =>
+    fetch(`${app.origin}/api/usage-retention`, {
+      method: "PUT",
+      headers: {
+        Authorization: `Bearer ${key}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ days }),
+    });
+  assert.equal(
+    (await put(app.store.secret(`${company.id}:client`), 30)).status,
+    401,
+  );
+  assert.equal((await put(app.token, 1)).status, 400);
+  assert.equal((await put(app.token, 0)).status, 200);
+  assert.equal(app.store.usageRetentionDays(), 0);
+});
+
+test(
+  "slow account maintenance does not block usage collection",
+  { timeout: 30_000 },
+  async () => {
+    const syncAccounts = app.core.syncAccounts;
+    const collectUsage = app.core.collectUsage;
+    let enter!: () => void;
+    let resume!: () => void;
+    const entered = new Promise<void>((resolve) => {
+      enter = resolve;
+    });
+    const release = new Promise<void>((resolve) => {
+      resume = resolve;
+    });
+    let collections = 0;
+    app.core.syncAccounts = async (id) => {
+      enter();
+      await release;
+      return syncAccounts.call(app.core, id);
+    };
+    app.core.collectUsage = async (id) => {
+      collections++;
+      return collectUsage.call(app.core, id);
+    };
+    try {
+      await entered;
+      assert.ok(
+        collections <= 2,
+        "idle profiles do not authenticate every two seconds",
+      );
+      const before = collections;
+      app.core.markUsageActivity(company.id);
+      await delay(2500);
+      assert.ok(
+        collections > before,
+        "accounting continues while maintenance is waiting",
+      );
+    } finally {
+      resume();
+      app.core.syncAccounts = syncAccounts;
+      app.core.collectUsage = collectUsage;
+    }
+  },
+);
+test("concurrent usage drains share one destructive queue read", async () => {
+  const first = app.core.collectUsage(company.id);
+  const second = app.core.collectUsage(company.id);
+  assert.equal(first, second);
+  await first;
 });
 test("verified CLIProxyAPI exposes its native Codex catalog through the same profile", async () => {
   const response = await fetch(
@@ -436,7 +585,7 @@ test("round robin with session affinity off uses both company credentials and ne
       Authorization: `Bearer ${app.token}`,
       "Content-Type": "application/json",
     },
-    body: JSON.stringify({ sessionAffinity: false }),
+    body: JSON.stringify({ strategy: "round-robin", sessionAffinity: false }),
   });
   assert.equal(changed.status, 200, await changed.text());
   const before = observed.length;
@@ -491,6 +640,16 @@ test("actual upstream accounting reaches durable SQLite exactly once", async () 
   assert.equal(summary.requests, 7);
   assert.equal(summary.totalTokens, 98);
   assert.equal(summary.outputTokens, 21);
+  for (const entry of app.store.usage(company.id)) {
+    assert.equal(entry.upstreamModel, "fixture-model");
+    assert.deepEqual(entry.pricingTokens, {
+      input: 6,
+      cached: 5,
+      cacheWrite: 0,
+      output: 3,
+      reasoning: 0,
+    });
+  }
   const raw = JSON.stringify(app.store.usage(company.id));
   assert.equal(raw.includes("company-one"), false);
   assert.equal(raw.includes("hello"), false);
@@ -673,6 +832,20 @@ test("account pause, resume and removal apply to the running model catalog", asy
   );
 });
 
+test("the core leaves no request-body capture or error log files after traffic", async () => {
+  for (const profile of [company, personal]) {
+    const files = await readdir(app.core.directory(profile.id), {
+      recursive: true,
+    });
+    assert.deepEqual(
+      files.filter((file) =>
+        /\.log$|request-body|api-request|api-response/.test(file),
+      ),
+      [],
+    );
+  }
+});
+
 test(
   "stop completes when the core exits during the final usage drain",
   { timeout: 2000 },
@@ -681,10 +854,11 @@ test(
     assert.ok(runtime);
     const collectUsage = app.core.collectUsage;
     app.core.collectUsage = async (profileId) => {
-      await collectUsage.call(app.core, profileId);
+      const count = await collectUsage.call(app.core, profileId);
       const exited = once(runtime.child, "exit");
       runtime.child.kill("SIGTERM");
       await exited;
+      return count;
     };
     try {
       await app.core.stop(personal.id);
@@ -695,3 +869,166 @@ test(
     }
   },
 );
+
+test("the same API subscription can be added to multiple profiles, with duplicates scoped locally", async () => {
+  const profiles = [
+    app.store.createProfile("Shared A", "forest"),
+    app.store.createProfile("Shared B", "blue"),
+  ];
+  try {
+    for (const profile of profiles) {
+      const add = () =>
+        fetch(`${app.origin}/api/profiles/${profile.id}/api-account`, {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${app.token}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            name: "Shared subscription",
+            provider: "custom",
+            baseUrl: upstreamBase,
+            apiKey: "synthetic-shared-key",
+            prefix: "",
+            models: [{ id: "fixture-model", protocol: "openai" }],
+          }),
+        });
+      const response = await add();
+      assert.equal(response.status, 201, await response.text());
+      const duplicate = await add();
+      assert.equal(duplicate.status, 409);
+      await duplicate.text();
+      assert.equal(app.store.apiAccounts(profile.id).length, 1);
+      const routed = await request(profile);
+      assert.equal(routed.status, 200);
+      assert.match(await routed.text(), /synthetic-shared-key/);
+    }
+    assert.notEqual(
+      app.store.apiAccounts(profiles[0]!.id)[0]!.id,
+      app.store.apiAccounts(profiles[1]!.id)[0]!.id,
+    );
+  } finally {
+    for (const profile of profiles) {
+      await app.core.stop(profile.id);
+    }
+  }
+});
+
+test(
+  "orderly concurrent stops drain every queued page and reject new gateway requests",
+  { timeout: 10000 },
+  async () => {
+    const profile = app.store.createProfile("Drain fixture", "forest");
+    await app.core.start(profile.id);
+    const runtime = app.core.runtimes.get(profile.id)!;
+    const queue = Array.from({ length: 1001 }, (_, i) => ({
+      request_id: `drain-${i}`,
+      timestamp: new Date().toISOString(),
+      provider: "codex",
+      model: "fixture",
+      tokens: { input_tokens: 1, output_tokens: 1, total_tokens: 2 },
+    }));
+    let pages = 0;
+    const fixture = http.createServer(async (req, res) => {
+      if (!req.url?.startsWith("/v0/management/usage-queue")) {
+        res.writeHead(404).end();
+        return;
+      }
+      pages++;
+      assert.throws(() => app.core.port(profile.id), /stopped/);
+      // Yield so both stop callers overlap the same destructive drain.
+      await delay(10);
+      res.setHeader("Content-Type", "application/json");
+      res.end(JSON.stringify(queue.splice(0, 500)));
+    });
+    await new Promise<void>((resolve) =>
+      fixture.listen(0, "127.0.0.1", resolve),
+    );
+    const address = fixture.address();
+    assert.ok(address instanceof Object);
+    // Finish any poll of the real core before replacing its queue with the fixture.
+    await app.core.collectUsage(profile.id);
+    runtime.port = address.port;
+    try {
+      await Promise.all([app.core.stop(profile.id), app.core.stop(profile.id)]);
+      assert.equal(pages, 3);
+      assert.equal(queue.length, 0);
+      assert.equal(app.store.summary(profile.id).requests, 1001);
+      assert.equal(runtime.state, "stopped");
+      assert.ok(
+        runtime.child.exitCode !== null || runtime.child.signalCode !== null,
+      );
+    } finally {
+      fixture.close();
+      fixture.closeAllConnections();
+      await app.core.stop(profile.id);
+    }
+  },
+);
+
+test("activity API preserves one snapshot while usage arrives during aggregation", async () => {
+  const profile = app.store.createProfile("Activity snapshot", "forest");
+  const usage = {
+    profileId: profile.id,
+    timestamp: new Date().toISOString(),
+    provider: "claude",
+    model: "fixture",
+    account: "fixture",
+    inputTokens: 100,
+    cachedTokens: 0,
+    cacheWriteTokens: 0,
+    outputTokens: 0,
+    reasoningTokens: 0,
+    totalTokens: 100,
+    latencyMs: 1,
+    failed: false,
+    statusCode: 200,
+    stream: false,
+  };
+  app.store.addUsage(
+    Array.from({ length: 1201 }, (_, i) => ({
+      ...usage,
+      id: `api-snapshot-${i}`,
+    })),
+  );
+  const read = app.store.usageTimeBatch.bind(app.store);
+  let signal!: () => void;
+  const reading = new Promise<void>((resolve) => {
+    signal = resolve;
+  });
+  app.store.usageTimeBatch = (...args) => {
+    const batch = read(...args);
+    if (args[0] === profile.id) signal();
+    return batch;
+  };
+  try {
+    const pending = fetch(
+      `${app.origin}/api/profiles/${profile.id}/usage?days=3650`,
+      { headers: { Authorization: `Bearer ${app.token}` } },
+    );
+    await reading;
+    app.store.addUsage([
+      {
+        ...usage,
+        id: "api-concurrent",
+        inputTokens: 1000000,
+        totalTokens: 1000000,
+      },
+    ]);
+    const response = await pending;
+    assert.equal(response.status, 200);
+    const result = await response.json();
+    assert.equal(result.summary.requests, 1201);
+    assert.equal(result.pricing.totals.requests, result.summary.requests);
+    assert.equal(
+      result.pricing.totals.tokens.input,
+      result.summary.totalTokens,
+    );
+    assert.equal(
+      result.records.some((r: { id: string }) => r.id === "api-concurrent"),
+      false,
+    );
+  } finally {
+    app.store.usageTimeBatch = read;
+  }
+});

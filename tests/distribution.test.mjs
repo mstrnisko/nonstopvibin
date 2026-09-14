@@ -1,11 +1,16 @@
 import test from "node:test";
+import YAML from "yaml";
 import assert from "node:assert/strict";
 import { mkdtemp, mkdir, writeFile, readFile, cp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { createHash } from "node:crypto";
 import { execFileSync } from "node:child_process";
-import { createPackage, uncacheAll } from "@electron/asar";
+import {
+  createPackage,
+  createPackageWithOptions,
+  uncacheAll,
+} from "@electron/asar";
 import { Arch } from "electron-builder";
 import validateCore from "../scripts/validate-core.cjs";
 import verifyPackage from "../scripts/verify-package.cjs";
@@ -137,6 +142,7 @@ test("the packaged archive check catches source, secrets and stale output", asyn
       "dist/client/index.html",
       "dist/desktop/main.cjs",
       "dist/desktop/preload.cjs",
+      "dist/licenses/THIRD-PARTY.txt",
       "package.json",
     ]) {
       await mkdir(join(source, file, ".."), { recursive: true });
@@ -189,8 +195,70 @@ test("the packaged archive check catches source, secrets and stale output", asyn
       await assert.rejects(verifyPackage(context));
       await rm(join(source, file));
     }
+    const macResources = join(root, "out/Fixture.app/Contents/Resources");
+    await cp(resources, macResources, { recursive: true });
+    const monitor = Buffer.alloc(56);
+    monitor.writeUInt32LE(0xfeedfacf, 0);
+    monitor.writeUInt32LE(0x01000007, 4);
+    monitor.writeUInt32LE(1, 16);
+    monitor.writeUInt32LE(24, 20);
+    monitor.writeUInt32LE(0x32, 32);
+    monitor.writeUInt32LE(24, 36);
+    monitor.writeUInt32LE(1, 40);
+    monitor.writeUInt32LE(13 << 16, 44);
+    await mkdir(join(root, "dist/desktop"), { recursive: true });
+    await writeFile(join(root, "dist/desktop/tray-click-monitor"), monitor);
+    await writeFile(join(source, "dist/desktop/tray-click-monitor"), monitor);
+    uncacheAll();
+    await createPackageWithOptions(source, join(macResources, "app.asar"), {
+      unpack: "**/tray-click-monitor",
+    });
+    const macContext = {
+      ...context,
+      arch: Arch.x64,
+      electronPlatformName: "darwin",
+      packager: { projectDir: root, appInfo: { productFilename: "Fixture" } },
+    };
+    await verifyPackage(macContext);
+    monitor.writeUInt32LE(26 << 16, 44);
+    await writeFile(join(root, "dist/desktop/tray-click-monitor"), monitor);
+    await assert.rejects(verifyPackage(macContext), /must target macOS 13/);
+    monitor.writeUInt32LE(13 << 16, 44);
+    await writeFile(join(root, "dist/desktop/tray-click-monitor"), monitor);
+    await assert.rejects(
+      verifyPackage({ ...macContext, arch: Arch.arm64 }),
+      /architecture/,
+    );
+    await writeFile(
+      join(macResources, "app.asar.unpacked/dist/desktop/tray-click-monitor"),
+      "tampered",
+    );
+    await assert.rejects(verifyPackage(macContext), /click monitor differs/);
   } finally {
     uncacheAll();
     await rm(root, { recursive: true, force: true });
   }
+});
+
+test("tag publication requires dependency and secret checks for the release revision", async () => {
+  const workflow = YAML.parse(
+    await readFile(join(project, ".github/workflows/release.yml"), "utf8"),
+  );
+  assert.ok(workflow.jobs.release.needs.includes("security"));
+  const steps = workflow.jobs.security.steps;
+  assert.equal(
+    steps.find((step) => step.uses?.startsWith("actions/checkout@")).with[
+      "fetch-depth"
+    ],
+    0,
+  );
+  for (const command of [
+    "bun run security:deps",
+    "bun run security:tooling",
+    "bun run security:secrets",
+    "bun run security:history",
+  ])
+    assert.ok(
+      steps.some((step) => step.run === command && !step["continue-on-error"]),
+    );
 });

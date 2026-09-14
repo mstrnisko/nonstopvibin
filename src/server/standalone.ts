@@ -1,8 +1,9 @@
 import { resolve } from "node:path";
 import { Application } from "./server.ts";
+import { dataDirectory } from "./data-directory.ts";
 
 const application = await Application.create({
-  directory: resolve(process.env.NONSTOPVIBIN_DATA_DIR || ".runtime"),
+  directory: dataDirectory(),
   binary: resolve(".vendor/core/cli-proxy-api"),
   clientDirectory: resolve("dist/client"),
   port: Number(process.env.NONSTOPVIBIN_PORT || 4318),

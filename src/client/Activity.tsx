@@ -1,4 +1,5 @@
 import "./activity.css";
+import { activityBuckets } from "./activity-buckets.ts";
 
 import { useEffect, useState } from "react";
 import { Download, Search } from "lucide-react";
@@ -6,11 +7,12 @@ import type {
   ProfileState,
   UsageRecord,
   UsageSummary,
+  UsagePricing,
 } from "../shared/types.ts";
 import { providerLabel } from "../shared/providers.ts";
 import { api } from "./api.ts";
 import { Empty } from "./components.tsx";
-import { accountLabel, count, csvCell } from "./format.ts";
+import { accountLabel, count, csvCell, dateLabel } from "./format.ts";
 
 const ranges = [
   { days: 1, label: "24h" },
@@ -28,84 +30,12 @@ const percentile = (values: number[], value: number) => {
   return sorted[Math.max(0, Math.ceil(sorted.length * value) - 1)];
 };
 
-interface Bucket {
-  key: number;
-  label: string;
-  accessibleLabel: string;
-  total: number;
-  failed: number;
-  showLabel: boolean;
-}
-
-function activityBuckets(records: UsageRecord[], days: number): Bucket[] {
-  const now = new Date();
-  const hourly = days === 1;
-  const end = hourly
-    ? new Date(now.getFullYear(), now.getMonth(), now.getDate(), now.getHours())
-    : new Date(now.getFullYear(), now.getMonth(), now.getDate());
-  const interval = hourly ? 60 * 60 * 1000 : 24 * 60 * 60 * 1000;
-  const datedRecords = records
-    .map((record) => ({ record, date: new Date(record.timestamp) }))
-    .filter(({ date }) => Number.isFinite(date.getTime()));
-  const oldest = datedRecords.reduce(
-    (minimum, { date }) => Math.min(minimum, date.getTime()),
-    end.getTime(),
-  );
-  const bucketCount = hourly
-    ? 24
-    : days === 3650
-      ? Math.max(1, Math.ceil((end.getTime() - oldest) / interval) + 1)
-      : days;
-  const start = end.getTime() - (bucketCount - 1) * interval;
-  const every = Math.max(1, Math.ceil(bucketCount / 7));
-  const buckets = Array.from({ length: bucketCount }, (_, index) => {
-    const date = new Date(start + index * interval);
-    return {
-      key: date.getTime(),
-      label: hourly
-        ? date.toLocaleTimeString([], { hour: "numeric" })
-        : date.toLocaleDateString([], {
-            month: bucketCount > 8 ? "numeric" : "short",
-            day: "numeric",
-          }),
-      accessibleLabel: hourly
-        ? date.toLocaleString([], {
-            month: "short",
-            day: "numeric",
-            hour: "numeric",
-          })
-        : date.toLocaleDateString([], {
-            month: "long",
-            day: "numeric",
-            year: "numeric",
-          }),
-      total: 0,
-      failed: 0,
-      showLabel: index % every === 0 || index === bucketCount - 1,
-    };
-  });
-  for (const { record, date } of datedRecords) {
-    const bucketDate = hourly
-      ? new Date(
-          date.getFullYear(),
-          date.getMonth(),
-          date.getDate(),
-          date.getHours(),
-        )
-      : new Date(date.getFullYear(), date.getMonth(), date.getDate());
-    const index = Math.round((bucketDate.getTime() - start) / interval);
-    if (buckets[index]) {
-      buckets[index].total += 1;
-      if (record.failed) buckets[index].failed += 1;
-    }
-  }
-  return buckets;
-}
-
 export function ActivityPage({ profile }: { profile: ProfileState }) {
   const [days, setDays] = useState(7);
   const [records, setRecords] = useState<UsageRecord[]>([]);
   const [summary, setSummary] = useState<UsageSummary>();
+  const [pricing, setPricing] = useState<UsagePricing>();
+  const [currency, setCurrency] = useState<"USD" | "EUR">("USD");
   const [query, setQuery] = useState("");
   const [error, setError] = useState("");
   const [failures, setFailures] = useState(false);
@@ -118,6 +48,7 @@ export function ActivityPage({ profile }: { profile: ProfileState }) {
     setLoading(true);
     setRecords([]);
     setSummary(undefined);
+    setPricing(undefined);
     const load = async () => {
       if (busy) return;
       busy = true;
@@ -125,10 +56,12 @@ export function ActivityPage({ profile }: { profile: ProfileState }) {
         const data = await api<{
           records: UsageRecord[];
           summary: UsageSummary;
+          pricing?: UsagePricing;
         }>(`/profiles/${profile.id}/usage?days=${days}`);
         if (!stopped) {
           setRecords(data.records);
           setSummary(data.summary);
+          setPricing(data.pricing);
           setError("");
         }
       } catch (e) {
@@ -141,15 +74,37 @@ export function ActivityPage({ profile }: { profile: ProfileState }) {
       }
     };
     void load();
-    const timer = setInterval(() => {
-      if (!document.hidden) void load();
-    }, 5000);
+    let timer: ReturnType<typeof setInterval> | undefined;
+    const onVisibilityChange = () => {
+      clearInterval(timer);
+      if (!document.hidden) {
+        void load();
+        timer = setInterval(load, 5000);
+      }
+    };
+    if (!document.hidden) timer = setInterval(load, 5000);
+    document.addEventListener("visibilitychange", onVisibilityChange);
     return () => {
       stopped = true;
       clearInterval(timer);
+      document.removeEventListener("visibilitychange", onVisibilityChange);
     };
   }, [profile.id, days]);
 
+  // Reuse within a render, while picking up timezone changes on the next refresh.
+  const rowTime = new Intl.DateTimeFormat([], {
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+  });
+  const rowTimestamp = new Intl.DateTimeFormat([], {
+    year: "numeric",
+    month: "numeric",
+    day: "numeric",
+    hour: "numeric",
+    minute: "numeric",
+    second: "numeric",
+  });
   const accounts = new Map(
     profile.accounts.map((account) => [
       account.authIndex || account.id,
@@ -169,6 +124,22 @@ export function ActivityPage({ profile }: { profile: ProfileState }) {
         .toLowerCase()
         .includes(query.toLowerCase()),
   );
+
+  const money = new Intl.NumberFormat([], {
+    style: "currency",
+    currency,
+    maximumFractionDigits: 4,
+  });
+  const amount = (usd: number | null | undefined) => {
+    if (usd == null || (currency === "EUR" && !pricing?.eur)) return "—";
+    return money.format(
+      usd * (currency === "EUR" ? (pricing?.eur?.rate ?? 0) : 1),
+    );
+  };
+  const costOf = (record: UsageRecord) => pricing?.usd[record.id] ?? null;
+  const totals = pricing?.totals;
+  const groupAmount = (usd: number, pricedCount: number, requests: number) =>
+    `${amount(pricedCount ? usd : null)}${pricedCount > 0 && pricedCount < requests ? " + ?" : ""}`;
 
   const totalRequests = summary?.requests ?? 0;
   const failedRequests = summary?.failed ?? 0;
@@ -199,43 +170,73 @@ export function ActivityPage({ profile }: { profile: ProfileState }) {
       );
   }
   const topStatus = [...failedCodes].sort((a, b) => b[1] - a[1])[0];
+  const tokens = totals?.tokens;
   const cacheDenominator =
-    (summary?.cachedTokens ?? 0) + (summary?.inputTokens ?? 0);
-  const cacheRate = cacheDenominator
-    ? ((summary?.cachedTokens ?? 0) / cacheDenominator) * 100
-    : 0;
+    (tokens?.input ?? 0) + (tokens?.cached ?? 0) + (tokens?.cacheWrite ?? 0);
+  const completeTokens = totals?.normalizedRequests === totalRequests;
+  const cacheRate = completeTokens
+    ? cacheDenominator
+      ? ((tokens?.cached ?? 0) / cacheDenominator) * 100
+      : 0
+    : null;
   const p95Latency = percentile(
     records.map((record) => record.latencyMs),
     0.95,
   );
   const tokenParts = [
-    { label: "cached", value: summary?.cachedTokens ?? 0, className: "cached" },
-    { label: "input", value: summary?.inputTokens ?? 0, className: "input" },
-    { label: "output", value: summary?.outputTokens ?? 0, className: "output" },
+    { label: "cached", value: tokens?.cached ?? 0, className: "cached" },
+    {
+      label: "cache write",
+      value: tokens?.cacheWrite ?? 0,
+      className: "cache-write",
+    },
+    { label: "input", value: tokens?.input ?? 0, className: "input" },
+    { label: "output", value: tokens?.output ?? 0, className: "output" },
     {
       label: "reasoning",
-      value: summary?.reasoningTokens ?? 0,
+      value: tokens?.reasoning ?? 0,
       className: "reasoning",
     },
   ];
+  const unclassified = Math.max(
+    0,
+    totalTokens - tokenParts.reduce((sum, part) => sum + part.value, 0),
+  );
+  if (unclassified)
+    tokenParts.push({
+      label: "unclassified",
+      value: unclassified,
+      className: "unclassified",
+    });
   const tokenMixTotal = tokenParts.reduce((sum, part) => sum + part.value, 0);
   const buckets = activityBuckets(records, days);
   const maxBucket = Math.max(1, ...buckets.map((bucket) => bucket.total));
 
   const accountGroups = new Map<
     string,
-    { label: string; requests: number; latency: number; failed: number }
+    {
+      label: string;
+      requests: number;
+      latency: number;
+      failed: number;
+      usd: number;
+      priced: number;
+    }
   >();
   for (const record of records) {
     const key = record.account || record.provider;
     const group = accountGroups.get(key) ?? {
       label: recordAccount(record),
+      usd: 0,
+      priced: 0,
       requests: 0,
       latency: 0,
       failed: 0,
     };
     group.requests += 1;
     group.latency += record.latencyMs;
+    group.usd += costOf(record) ?? 0;
+    group.priced += Number(costOf(record) !== null);
     if (record.failed) group.failed += 1;
     accountGroups.set(key, group);
   }
@@ -245,7 +246,14 @@ export function ActivityPage({ profile }: { profile: ProfileState }) {
 
   const modelGroups = new Map<
     string,
-    { requests: number; tokens: number; failed: number; latencies: number[] }
+    {
+      requests: number;
+      tokens: number;
+      failed: number;
+      latencies: number[];
+      usd: number;
+      priced: number;
+    }
   >();
   for (const record of records) {
     const group = modelGroups.get(record.model) ?? {
@@ -253,9 +261,13 @@ export function ActivityPage({ profile }: { profile: ProfileState }) {
       tokens: 0,
       failed: 0,
       latencies: [],
+      usd: 0,
+      priced: 0,
     };
     group.requests += 1;
     group.tokens += record.totalTokens;
+    group.usd += costOf(record) ?? 0;
+    group.priced += Number(costOf(record) !== null);
     if (record.failed) group.failed += 1;
     group.latencies.push(record.latencyMs);
     modelGroups.set(record.model, group);
@@ -273,15 +285,30 @@ export function ActivityPage({ profile }: { profile: ProfileState }) {
       "inputTokens",
       "outputTokens",
       "cachedTokens",
+      "cacheWriteTokens",
       "reasoningTokens",
       "totalTokens",
       "latencyMs",
       "statusCode",
     ];
     const csv = [
-      keys.join(","),
+      [
+        ...keys,
+        "estimatedUsd",
+        "estimatedEur",
+        "pricingFetchedAt",
+        "eurRateDate",
+      ].join(","),
       ...filtered.map((record) =>
-        keys.map((key) => csvCell(String(record[key]))).join(","),
+        [
+          ...keys.map((key) => csvCell(String(record[key]))),
+          costOf(record) ?? "",
+          costOf(record) !== null && pricing?.eur
+            ? (costOf(record) ?? 0) * pricing.eur.rate
+            : "",
+          csvCell(pricing?.fetchedAt ?? ""),
+          csvCell(pricing?.eur?.date ?? ""),
+        ].join(","),
       ),
     ].join("\n");
     const url = URL.createObjectURL(new Blob([csv], { type: "text/csv" }));
@@ -296,7 +323,7 @@ export function ActivityPage({ profile }: { profile: ProfileState }) {
     <div className="activity-page">
       <div className="activity-range">
         <h2 className="label" id="usage-title">
-          Usage · {ranges.find((r) => r.days === days)?.label}
+          Usage overview
         </h2>
         <div className="segmented" aria-label="Time range">
           {ranges.map((range) => (
@@ -343,25 +370,6 @@ export function ActivityPage({ profile }: { profile: ProfileState }) {
                 detail: `${percentage(failedRequests, totalRequests, 1)}${topStatus ? ` · top ${topStatus[0]}` : ""}`,
                 tone: failedRequests ? "warn" : "",
               },
-              {
-                label: "Cache hit",
-                value: `${cacheRate.toFixed(0)}%`,
-                detail: `${count(summary?.cachedTokens ?? 0)} cached`,
-              },
-              {
-                label: "p95 latency",
-                value: `${(p95Latency / 1000).toFixed(2)}s`,
-                detail: `latest ${count(records.length)} reqs`,
-              },
-              {
-                label: "Avg output",
-                value: count(
-                  totalRequests
-                    ? (summary?.outputTokens ?? 0) / totalRequests
-                    : 0,
-                ),
-                detail: "tokens / request",
-              },
             ].map((stat) => (
               <div className="activity-stat" key={stat.label}>
                 <span className="label">{stat.label}</span>
@@ -371,14 +379,138 @@ export function ActivityPage({ profile }: { profile: ProfileState }) {
                 <code>{stat.detail}</code>
               </div>
             ))}
+
+            <section
+              className="activity-value"
+              aria-labelledby="api-value-title"
+            >
+              <div className="activity-section-heading">
+                <h2 className="label" id="api-value-title">
+                  Estimated API value
+                </h2>
+              </div>
+              <strong>
+                {groupAmount(
+                  totals?.usd ?? 0,
+                  totals?.pricedRequests ?? 0,
+                  totals?.requests ?? 0,
+                )}
+              </strong>
+              <details className="pricing-details">
+                <summary>Pricing details · {currency}</summary>
+                <div className="segmented" aria-label="Display currency">
+                  {(["USD", "EUR"] as const).map((unit) => (
+                    <button
+                      type="button"
+                      key={unit}
+                      aria-pressed={currency === unit}
+                      className={currency === unit ? "active" : ""}
+                      onClick={() => setCurrency(unit)}
+                    >
+                      {unit === "USD" ? "$ USD" : "€ EUR"}
+                    </button>
+                  ))}
+                </div>
+                <p className="activity-note">
+                  Full selected period · {count(totals?.pricedRequests ?? 0)} of{" "}
+                  {count(totals?.requests ?? 0)} requests priced.
+                  {totals &&
+                    totals.pricedRequests < totals.requests &&
+                    " Missing prices or token breakdowns are excluded, not counted as free."}
+                  {pricing?.refreshing && " Refreshing list prices…"}
+                  {pricing?.fetchedAt &&
+                    ` Prices updated ${dateLabel(pricing.fetchedAt, rowTimestamp)}.`}
+                  {currency === "EUR" &&
+                    (pricing?.eur
+                      ? ` EUR rate dated ${pricing.eur.date}.`
+                      : " EUR exchange rate unavailable.")}
+                </p>
+              </details>
+            </section>
           </section>
 
-          <section className="token-mix" aria-labelledby="token-mix-title">
-            <div className="activity-section-heading">
-              <h2 className="label" id="token-mix-title">
-                Token mix
-              </h2>
-              <code>{count(totalTokens)} total</code>
+          {records.length > 0 && (
+            <section
+              className="activity-section requests-chart"
+              aria-labelledby="requests-title"
+            >
+              <div className="activity-section-heading">
+                <h2 className="label" id="requests-title">
+                  Request activity
+                </h2>
+                <code>
+                  {count(records.length)} sampled requests · per{" "}
+                  {days === 1 ? "hour" : "day"}
+                </code>
+              </div>
+              <div className="chart-plot">
+                {buckets.map((bucket) => {
+                  const height = (bucket.total / maxBucket) * 100;
+                  const failedHeight = bucket.total
+                    ? (bucket.failed / bucket.total) * 100
+                    : 0;
+                  return (
+                    <div
+                      className="chart-column"
+                      key={bucket.key}
+                      title={`${bucket.accessibleLabel}: ${bucket.total} requests, ${bucket.failed} failed`}
+                    >
+                      <div
+                        className={`chart-bar ${bucket.total ? "" : "empty"}`}
+                        style={{ height: `${height}%` }}
+                      >
+                        <span
+                          className="chart-failed"
+                          style={{ height: `${failedHeight}%` }}
+                        />
+                      </div>
+                      <code>{bucket.showLabel ? bucket.label : ""}</code>
+                    </div>
+                  );
+                })}
+              </div>
+            </section>
+          )}
+
+          <details
+            className="activity-disclosure token-mix"
+            aria-labelledby="token-mix-title"
+          >
+            <summary id="token-mix-title">
+              Token details <span>Cache, output & latency</span>
+            </summary>
+            <div className="activity-secondary-stats">
+              {[
+                {
+                  label: "Cache hit",
+                  value: cacheRate === null ? "—" : `${cacheRate.toFixed(0)}%`,
+                  detail: completeTokens
+                    ? `${count(tokens?.cached ?? 0)} cached`
+                    : "incomplete token breakdown",
+                },
+                {
+                  label: "p95 latency",
+                  value: `${(p95Latency / 1000).toFixed(2)}s`,
+                  detail: `latest ${count(records.length)} reqs`,
+                },
+                {
+                  label: "Avg output",
+                  value: completeTokens
+                    ? count(
+                        totalRequests
+                          ? (tokens?.output ?? 0) / totalRequests
+                          : 0,
+                      )
+                    : "—",
+                  detail: "tokens / request",
+                },
+              ].map((stat) => (
+                <div className="activity-stat" key={stat.label}>
+                  <span className="label">{stat.label}</span>
+                  <strong>{stat.value}</strong>
+                  <code>{stat.detail}</code>
+                </div>
+              ))}
             </div>
             <div
               className="token-mix-bar"
@@ -402,7 +534,7 @@ export function ActivityPage({ profile }: { profile: ProfileState }) {
                 </span>
               ))}
             </div>
-          </section>
+          </details>
 
           {!records.length ? (
             <Empty title="Ready for your first request">
@@ -411,53 +543,13 @@ export function ActivityPage({ profile }: { profile: ProfileState }) {
             </Empty>
           ) : (
             <>
-              <section
-                className="activity-section requests-chart"
-                aria-labelledby="requests-title"
-              >
-                <div className="activity-section-heading">
-                  <h2 className="label" id="requests-title">
-                    Requests / {days === 1 ? "hour" : "day"}
-                  </h2>
-                </div>
-                <div className="chart-plot">
-                  {buckets.map((bucket) => {
-                    const height = (bucket.total / maxBucket) * 100;
-                    const failedHeight = bucket.total
-                      ? (bucket.failed / bucket.total) * 100
-                      : 0;
-                    return (
-                      <div
-                        className="chart-column"
-                        key={bucket.key}
-                        title={`${bucket.accessibleLabel}: ${bucket.total} requests, ${bucket.failed} failed`}
-                      >
-                        <div
-                          className={`chart-bar ${bucket.total ? "" : "empty"}`}
-                          style={{ height: `${height}%` }}
-                        >
-                          <span
-                            className="chart-failed"
-                            style={{ height: `${failedHeight}%` }}
-                          />
-                        </div>
-                        <code>{bucket.showLabel ? bucket.label : ""}</code>
-                      </div>
-                    );
-                  })}
-                </div>
-              </section>
-
-              <section
-                className="activity-section"
+              <details
+                className="activity-disclosure"
                 aria-labelledby="accounts-title"
               >
-                <div className="activity-section-heading">
-                  <h2 className="label" id="accounts-title">
-                    By account
-                  </h2>
-                  <code>{count(records.length)} sampled requests</code>
-                </div>
+                <summary id="accounts-title">
+                  By account <span>Request share & reliability</span>
+                </summary>
                 <div className="table-scroll">
                   <table className="data-table account-activity-table">
                     <thead>
@@ -465,6 +557,7 @@ export function ActivityPage({ profile }: { profile: ProfileState }) {
                         <th>Account</th>
                         <th>Share</th>
                         <th className="num">Reqs</th>
+                        <th className="num">API value ({currency})</th>
                         <th className="num">Avg latency</th>
                         <th className="num">Err</th>
                       </tr>
@@ -492,6 +585,13 @@ export function ActivityPage({ profile }: { profile: ProfileState }) {
                           </td>
                           <td className="num">{count(group.requests)}</td>
                           <td className="num">
+                            {groupAmount(
+                              group.usd,
+                              group.priced,
+                              group.requests,
+                            )}
+                          </td>
+                          <td className="num">
                             {(group.latency / group.requests / 1000).toFixed(2)}
                             s
                           </td>
@@ -505,17 +605,15 @@ export function ActivityPage({ profile }: { profile: ProfileState }) {
                     </tbody>
                   </table>
                 </div>
-              </section>
+              </details>
 
-              <section
-                className="activity-section"
+              <details
+                className="activity-disclosure"
                 aria-labelledby="models-title"
               >
-                <div className="activity-section-heading">
-                  <h2 className="label" id="models-title">
-                    By model
-                  </h2>
-                </div>
+                <summary id="models-title">
+                  By model <span>Tokens, value & latency</span>
+                </summary>
                 <div className="table-scroll">
                   <table className="data-table">
                     <thead>
@@ -523,6 +621,7 @@ export function ActivityPage({ profile }: { profile: ProfileState }) {
                         <th>Model</th>
                         <th className="num">Reqs</th>
                         <th className="num">Tokens</th>
+                        <th className="num">API value ({currency})</th>
                         <th className="num">Err</th>
                         <th className="num">p50 latency</th>
                       </tr>
@@ -533,6 +632,13 @@ export function ActivityPage({ profile }: { profile: ProfileState }) {
                           <td>{model}</td>
                           <td className="num">{count(group.requests)}</td>
                           <td className="num">{count(group.tokens)}</td>
+                          <td className="num">
+                            {groupAmount(
+                              group.usd,
+                              group.priced,
+                              group.requests,
+                            )}
+                          </td>
                           <td
                             className={`num ${group.failed ? "text-warn" : ""}`}
                           >
@@ -549,7 +655,7 @@ export function ActivityPage({ profile }: { profile: ProfileState }) {
                     </tbody>
                   </table>
                 </div>
-              </section>
+              </details>
 
               <section
                 className="activity-section request-log"
@@ -600,6 +706,7 @@ export function ActivityPage({ profile }: { profile: ProfileState }) {
                           <th>Model</th>
                           <th>Account</th>
                           <th className="num">Tokens</th>
+                          <th className="num">API value ({currency})</th>
                           <th className="num">Lat ms</th>
                           <th className="num">Code</th>
                         </tr>
@@ -608,18 +715,9 @@ export function ActivityPage({ profile }: { profile: ProfileState }) {
                         {filtered.map((record) => (
                           <tr key={record.id}>
                             <td
-                              title={new Date(
-                                record.timestamp,
-                              ).toLocaleString()}
+                              title={dateLabel(record.timestamp, rowTimestamp)}
                             >
-                              {new Date(record.timestamp).toLocaleTimeString(
-                                [],
-                                {
-                                  hour: "2-digit",
-                                  minute: "2-digit",
-                                  second: "2-digit",
-                                },
-                              )}
+                              {dateLabel(record.timestamp, rowTime)}
                             </td>
                             <td>
                               {record.model}
@@ -632,6 +730,7 @@ export function ActivityPage({ profile }: { profile: ProfileState }) {
                             </td>
                             <td>{recordAccount(record)}</td>
                             <td className="num">{count(record.totalTokens)}</td>
+                            <td className="num">{amount(costOf(record))}</td>
                             <td className="num">{count(record.latencyMs)}</td>
                             <td
                               className={`num ${
@@ -658,8 +757,8 @@ export function ActivityPage({ profile }: { profile: ProfileState }) {
             {records.length >= 500 && (
               <>
                 {" "}
-                Derived tables use the latest 500 requests; summary totals
-                include the full range.
+                Charts, tables, and CSV use the latest 500 requests; summary
+                totals and estimated API value include the full range.
               </>
             )}
           </p>

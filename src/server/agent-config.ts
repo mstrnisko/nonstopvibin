@@ -111,14 +111,17 @@ export default async function (pi) {
       // The core rewrites anthropic-beta, so per-message output_config is rejected upstream.
       return { ...model, ...known, compat: { ...compat, supportsMidConvoEffort: false }, api: model.api, baseUrl: model.api === "anthropic-messages" ? ${JSON.stringify(endpoint.replace(/\/v1$/, ""))} : ${JSON.stringify(endpoint)} };
     });
+    pi.registerProvider(${JSON.stringify(provider)}, {
+      name: printable(${JSON.stringify(profile.name)}), baseUrl: ${JSON.stringify(endpoint)}, apiKey: ${JSON.stringify(`!${shellQuote(helper)}`)},
+      models,
+    });
   } catch {
-    models = [];
-    pi.on("session_start", (_event, ctx) => ctx.ui.notify(printable(${JSON.stringify(`Could not load ${profile.name}'s nonstopvibin models. Start this profile, check Connect agents, then /reload.`)}), "warning"));
+    pi.on("session_start", (_event, ctx) => {
+      // During extension loading unregisterProvider only cancels pending registrations.
+      pi.unregisterProvider(${JSON.stringify(provider)});
+      ctx.ui.notify(printable(${JSON.stringify(`Could not load ${profile.name}'s nonstopvibin models. The profile may be stopped, deleted, or have no available models. Check Connect agents and reconnect, then /reload. Use /nv to choose another profile.`)}), "warning");
+    });
   }
-  pi.registerProvider(${JSON.stringify(provider)}, {
-    name: printable(${JSON.stringify(profile.name)}), baseUrl: ${JSON.stringify(endpoint)}, apiKey: ${JSON.stringify(`!${shellQuote(helper)}`)},
-    models,
-  });
   connectProfileControls(pi, ${JSON.stringify({ provider, name: profile.name, slug: profile.slug })});
 }
 `;

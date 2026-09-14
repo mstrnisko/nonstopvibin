@@ -8,6 +8,7 @@ const price = z.number().finite().nonnegative();
 const rates = z.object({
   input: price,
   output: price,
+  reasoning: price.optional(),
   cache_read: price.optional(),
   cache_write: price.optional(),
 });
@@ -41,9 +42,19 @@ const definition = z.object({
 });
 const catalogSchema = z.record(
   z.string(),
-  z.object({ models: z.record(z.string(), z.unknown()) }),
+  // Retain only fields needed by agents, not the catalog's full model payloads.
+  z.object({
+    models: z.record(z.string(), z.unknown()).transform((models) =>
+      Object.fromEntries(
+        Object.entries(models).flatMap(([id, value]) => {
+          const parsed = definition.safeParse(value);
+          return parsed.success ? [[id, parsed.data]] : [];
+        }),
+      ),
+    ),
+  }),
 );
-type Catalog = z.infer<typeof catalogSchema>;
+type Catalog = z.input<typeof catalogSchema>;
 const providers = new Map([
   ["claude", "anthropic"],
   ["codex", "openai"],
@@ -110,6 +121,7 @@ export class ModelCatalog {
   private cached?: { data: Catalog; at: number };
   private pending?: Promise<{ data: Catalog; at: number }>;
   private fetcher: typeof fetch;
+  private nextActivityRefresh = 0;
   constructor(fetcher: typeof fetch = fetch) {
     this.fetcher = fetcher;
   }
@@ -158,6 +170,33 @@ export class ModelCatalog {
   async models(models: Model[], accounts: ApiAccount[]): Promise<Model[]> {
     const { data, at } = await this.load();
     return enrichModels(models, accounts, data, new Date(at).toISOString());
+  }
+  /** Activity never waits for the network. Failed refreshes back off for a minute. */
+  snapshot(models: Model[]) {
+    if (
+      (!this.cached || Date.now() - this.cached.at >= 3_600_000) &&
+      Date.now() >= this.nextActivityRefresh &&
+      !this.pending
+    ) {
+      this.nextActivityRefresh = Date.now() + 60_000;
+      void this.load().catch(() => {});
+    }
+    const cached = this.cached;
+    const enrich = (entries: Model[]) =>
+      cached
+        ? enrichModels(
+            entries,
+            [],
+            cached.data,
+            new Date(cached.at).toISOString(),
+          )
+        : entries;
+    return {
+      models: enrich(models),
+      enrich,
+      fetchedAt: cached ? new Date(cached.at).toISOString() : null,
+      refreshing: !!this.pending,
+    };
   }
 }
 

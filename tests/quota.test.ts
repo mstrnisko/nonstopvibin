@@ -252,3 +252,22 @@ test("OpenCode Go selects the wire protocol for published model families and liv
   assert.equal(goModelProtocol("glm-5.3"), "openai");
   assert.equal(goModelProtocol("new-model", "/v1/messages"), "anthropic");
 });
+
+test("Codex banked reset counts distinguish zero, unavailable, and invalid readings", () => {
+  for (const count of [0, 1, 3]) {
+    const payload = { rate_limit_reset_credits: { available_count: count } };
+    assert.equal(parseQuota("codex", payload, now).bankedResets, count);
+    assert.equal(parseQuota("claude", payload, now).bankedResets, undefined);
+  }
+  for (const count of [null, -1, 1.5, "invalid", Number.MAX_SAFE_INTEGER + 1]) {
+    assert.equal(
+      parseQuota(
+        "codex",
+        { rate_limit_reset_credits: { available_count: count } },
+        now,
+      ).bankedResets,
+      undefined,
+    );
+  }
+  assert.equal(parseQuota("codex", {}, now).bankedResets, undefined);
+});

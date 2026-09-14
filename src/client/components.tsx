@@ -1,19 +1,31 @@
 import type { ReactNode } from "react";
 import * as Dialog from "@radix-ui/react-dialog";
 import * as RadixSelect from "@radix-ui/react-select";
-import {
-  Activity,
-  Bot,
-  Check,
-  ChevronDown,
-  Copy,
-  KeyRound,
-  X,
-} from "lucide-react";
-import { useState } from "react";
+import { Activity, Bot, Check, ChevronDown, Copy, X } from "lucide-react";
+import { useEffect, useState } from "react";
 import type { Account, QuotaWindow } from "../shared/types.ts";
 import { copy } from "./api.ts";
 import { accountLabel, exactTime, resetIn } from "./format.ts";
+
+export function useKeepDraft(needed: boolean) {
+  useEffect(() => {
+    if (!needed || !window.nonstopvibin) return;
+    const preventClose = (event: BeforeUnloadEvent) => {
+      event.preventDefault();
+      event.returnValue = true;
+    };
+    window.addEventListener("beforeunload", preventClose);
+    return () => {
+      window.removeEventListener("beforeunload", preventClose);
+      // Other guards installed in this commit still get to veto the close.
+      queueMicrotask(() => {
+        void window.nonstopvibin?.releaseWindow().catch(() => {
+          // The renderer can disappear before the IPC reply during normal unload.
+        });
+      });
+    };
+  }, [needed]);
+}
 
 export function Modal({
   title,
@@ -30,6 +42,7 @@ export function Modal({
   onClose(): void;
   wide?: boolean;
 }) {
+  useKeepDraft(open);
   // Capture before an autoFocus input mounts; callers mount dialogs when opened.
   const [opener] = useState(() => document.activeElement);
   return (
@@ -159,8 +172,24 @@ export function CopyButton({
     </button>
   );
 }
-/** Mirrorball lockup (mirrorball/README.md). The ball doubles as the proxy
-    status light: spinning = running, frozen = paused, grey = stopped. */
+export function AnimatedLogo({
+  state,
+}: {
+  state: "running" | "paused" | "stopped";
+}) {
+  const [replay, setReplay] = useState(0);
+  return (
+    <button
+      type="button"
+      className="nv-logo-button"
+      aria-label="NonstopVibin — replay logo animation"
+      onClick={() => setReplay((value) => value + 1)}
+    >
+      <Logo key={replay} state={state} />
+    </button>
+  );
+}
+
 export function Logo({
   state = "stopped",
   size = 24,
@@ -172,21 +201,21 @@ export function Logo({
 }) {
   return (
     <span className="nv-logo">
-      <span
-        className="nv-ball"
-        data-state={state}
-        style={{ width: size, height: size, fontSize: size }}
-        aria-hidden="true"
-      >
-        {Array.from({ length: 9 }, (_, i) => (
-          <i key={i} />
-        ))}
+      <span className="nv-ball-wrap" aria-hidden="true">
+        <img
+          className="nv-ball"
+          data-state={state}
+          src={`/tray/${state === "stopped" ? "stopped" : "ball"}.svg`}
+          width={size}
+          height={size}
+          alt=""
+        />
       </span>
       {word && (
-        <>
+        <span className="nv-text">
           <span className="nv-word">NONSTOP</span>
           <span className="nv-sub">VIBIN</span>
-        </>
+        </span>
       )}
     </span>
   );
@@ -267,9 +296,9 @@ export function QuotaMeter({
       </div>
       <div
         className={`meter-track ${level}`}
-        role={pct === null ? undefined : "meter"}
-        aria-hidden={pct === null || undefined}
-        aria-label={window?.label}
+        role={pct == null ? undefined : "meter"}
+        aria-hidden={pct == null || undefined}
+        aria-label={label ?? window?.label}
         aria-valuemin={0}
         aria-valuemax={100}
         aria-valuenow={pct ?? undefined}
@@ -326,13 +355,5 @@ export function Empty({
       <p>{children}</p>
       {action}
     </div>
-  );
-}
-export function SecretNote() {
-  return (
-    <p className="field-note">
-      <KeyRound size={13} /> Keys stay on this computer and are never sent to
-      our servers.
-    </p>
   );
 }

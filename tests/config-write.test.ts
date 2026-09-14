@@ -13,6 +13,7 @@ test("config writes return the saved snapshot, serialize, and recover after fail
   const store = new Store(directory, fileKeyCodec(directory));
   try {
     const profile = store.createProfile("Fixture", "forest");
+    assert.equal(profile.strategy, "fill-first");
     assert.equal(profile.sessionAffinity, true);
     const core = new CorePool(store, "unused");
     const path = join(core.directory(profile.id), "config.yaml");
@@ -23,7 +24,7 @@ test("config writes return the saved snapshot, serialize, and recover after fail
 
     store.saveProfile({
       ...profile,
-      strategy: "fill-first",
+      strategy: "round-robin",
       sessionAffinity: false,
     });
     const writes = await Promise.all([
@@ -36,8 +37,8 @@ test("config writes return the saved snapshot, serialize, and recover after fail
     );
     assert.deepEqual(YAML.parse(await readFile(path, "utf8")), writes[1]);
     assert.equal(writes[1].routing["session-affinity"], false);
-    assert.equal(first.routing.strategy, "round-robin");
-    assert.equal(writes[1].routing.strategy, "fill-first");
+    assert.equal(first.routing.strategy, "fill-first");
+    assert.equal(writes[1].routing.strategy, "round-robin");
 
     await rm(path);
     await mkdir(path);

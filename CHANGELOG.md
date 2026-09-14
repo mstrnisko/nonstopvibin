@@ -1,10 +1,5 @@
 # Changelog
 
-All notable changes to this project will be documented in this file.
-
-The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
-and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
-
 ## [Unreleased]
 
 ### Fixed
@@ -23,6 +18,13 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 
 ### Changed
 
+- Desktop and development now share `~/.nonstopvibin` and an owner-only AES-GCM
+  vault key. Linux no longer requires a secret service. Older data directories
+  are not imported automatically; see [storage migration](docs/architecture.md).
+- Added optional activity retention, full-period usage totals and estimated API
+  value, plus manually confirmed Codex banked resets.
+- Main and quota windows now unload when closed, preserving unfinished forms;
+  the menu bar icon stays static and logo animations finish instead of looping.
 - Startup failures are now also printed to the terminal.
 - The first release exposes Claude Code, Codex, and pi as agents, and Claude, Codex, OpenCode Go, and custom API-key providers. Kimi, Antigravity, xAI, and the OpenCode agent stay in the code but are hidden from the app.
 - Packaged Electron builds now disable run-as-Node and `NODE_OPTIONS` environment overrides.

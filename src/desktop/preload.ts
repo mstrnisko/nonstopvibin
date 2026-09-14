@@ -7,6 +7,7 @@ const bridge: DesktopBridge = {
   copy: (text: string) => ipcRenderer.invoke("nv:copy", text),
   showWindow: (profileId?: string) =>
     ipcRenderer.invoke("nv:show-window", profileId),
+  releaseWindow: () => ipcRenderer.invoke("nv:release-window"),
   setLoginItem: (enabled: boolean) =>
     ipcRenderer.invoke("nv:login-item", enabled),
   getLoginItem: () => ipcRenderer.invoke("nv:get-login-item"),

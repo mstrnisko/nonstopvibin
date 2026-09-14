@@ -94,9 +94,12 @@ export function coreConfiguration(
       "disable-auto-update-panel": true,
     },
     debug: false,
+    // Skip body-capturing middleware, including error-only capture. This is
+    // an upstream performance option, unrelated to the application's license.
+    "commercial-mode": true,
     "logging-to-file": false,
     "request-log": false,
-    "error-logs-max-files": 0,
+    "error-logs-max-files": 10,
     "usage-statistics-enabled": true,
     "redis-usage-queue-retention-seconds": 86400,
     "request-retry": 1,

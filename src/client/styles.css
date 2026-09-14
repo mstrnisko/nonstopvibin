@@ -438,6 +438,7 @@ input[role="switch"]:disabled {
   border-radius: var(--radius);
   font-size: var(--text-body);
   font-weight: 500;
+  line-height: 1.25;
   white-space: nowrap;
   color: var(--ink);
 }
@@ -452,14 +453,10 @@ input[role="switch"]:disabled {
   background: var(--amber);
   color: var(--amber-ink);
   border-color: transparent;
-  font-weight: 600;
 }
 .button.primary:hover:not(:disabled) {
   background: var(--amber-hover);
   border-color: transparent;
-}
-.button.primary svg {
-  stroke-width: 2.4;
 }
 .button.small {
   min-height: 2rem;
@@ -715,10 +712,6 @@ input[role="switch"]:disabled {
   height: 16px;
   filter: brightness(0) invert(0.85);
 }
-.provider-icon.claude img,
-.provider-icon.anthropic img {
-  filter: none;
-}
 .provider-icon svg {
   width: 16px;
   height: 16px;
@@ -751,101 +744,152 @@ input[role="switch"]:disabled {
   padding: 0 6px;
   margin: 2px 0 20px;
 }
-/* Mirrorball lockup (mirrorball/README.md). */
+/* Mirrorball lockup (docs/design/icons.md). */
 .nv-logo {
   display: flex;
   align-items: center;
   gap: 8px;
 }
-.nv-ball {
-  flex: 0 0 auto;
-  border-radius: 50%;
-  overflow: hidden;
-  background: #e0a33f;
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  grid-template-rows: repeat(3, 1fr);
-  /* 1.5px at 24px; scales with the inline font-size set from `size`. */
-  gap: 0.0625em;
-  padding: 0.0625em;
+.nv-logo-button {
+  -webkit-app-region: no-drag;
+  border: 0;
+  padding: 0;
+  background: transparent;
+  border-radius: var(--radius);
 }
-.nv-ball i {
+.nv-ball-wrap {
+  flex: 0 0 auto;
+  position: relative;
+}
+.nv-ball {
   display: block;
 }
-.nv-ball i:nth-child(1) {
-  background: #f0bc63;
+.nv-logo-button .nv-ball-wrap::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: url("/mirrorball-spin.png") 0 0 / 7300% 100% no-repeat;
+  opacity: 0;
+  pointer-events: none;
 }
-.nv-ball i:nth-child(2) {
-  background: #e88ab8;
+.nv-ball-wrap::after {
+  content: "";
+  position: absolute;
+  top: 16%;
+  left: 24%;
+  width: 28%;
+  height: 28%;
+  background:
+    linear-gradient(90deg, transparent 40%, #fff8e8 50%, transparent 60%),
+    linear-gradient(transparent 40%, #fff8e8 50%, transparent 60%);
+  filter: drop-shadow(0 0 2px #fff0be);
+  opacity: 0;
+  pointer-events: none;
 }
-.nv-ball i:nth-child(3) {
-  background: #e0a33f;
+/* Finite mount/click burst: no timers, idle loops, or retained layer hints. */
+@media (prefers-reduced-motion: no-preference) {
+  .nv-logo-button .nv-ball-wrap::before {
+    animation: nv-spin 2400ms steps(72);
+  }
+  .nv-logo-button .nv-ball-wrap::after {
+    animation: nv-glint 1600ms ease-in-out;
+  }
+  .nv-logo-button .nv-word,
+  .nv-logo-button .nv-sub {
+    animation: nv-shine 1600ms ease-in-out;
+  }
 }
-.nv-ball i:nth-child(4) {
-  background: #e0a33f;
+@keyframes nv-spin {
+  from {
+    opacity: 1;
+    background-position: 0 0;
+  }
+  to {
+    opacity: 1;
+    background-position: 100% 0;
+  }
 }
-.nv-ball i:nth-child(5) {
-  background: #f5d08c;
+@keyframes nv-shine {
+  from {
+    background-position:
+      150% 0,
+      0 0;
+  }
+  to {
+    background-position:
+      -150% 0,
+      0 0;
+  }
 }
-.nv-ball i:nth-child(6) {
-  background: #c98a2e;
+@keyframes nv-glint {
+  0%,
+  20%,
+  80%,
+  100% {
+    opacity: 0;
+    transform: scale(0.4) rotate(-20deg);
+  }
+  45% {
+    opacity: 1;
+    transform: scale(1.25) rotate(20deg);
+  }
 }
-.nv-ball i:nth-child(7) {
-  background: #e88ab8;
+.nv-ball[data-state="stopped"] {
+  opacity: 0.55;
 }
-.nv-ball i:nth-child(8) {
-  background: #e0a33f;
+.nv-text {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 1px;
+  line-height: 1;
 }
-.nv-ball i:nth-child(9) {
-  background: #f0bc63;
+/* Static metallic lettering keeps the lockup without continuous painting. */
+.nv-word,
+.nv-sub {
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-repeat: no-repeat;
+  background-size:
+    200% 100%,
+    100% 100%;
+  background-position:
+    150% 0,
+    0 0;
 }
 .nv-word {
   font:
-    italic 700 15px / 1 "Space Grotesk",
+    italic 700 10px / 1 "Space Grotesk",
     "Helvetica Neue",
     sans-serif;
-  letter-spacing: -0.01em;
-  color: #eae5dc;
+  letter-spacing: 0.22em;
+  padding-left: 0.1em;
+  background-image:
+    linear-gradient(
+      110deg,
+      transparent 38%,
+      #ffffff60 45%,
+      #ffffffe0 50%,
+      #ffffff60 55%,
+      transparent 62%
+    ),
+    linear-gradient(180deg, #fbf8f2, #cfc7b8 48%, #f7f2e8 52%, #a89f8e);
 }
 .nv-sub {
-  font: italic 800 16px / 1 var(--sans);
-  letter-spacing: 0.04em;
-  color: #f6a8d4;
-  animation: nv-glow 4s ease-in-out infinite;
-}
-@keyframes nv-glow {
-  0%,
-  100% {
-    text-shadow: 0 0 6px #e88ab840;
-  }
-  50% {
-    color: #ffe0a3;
-    text-shadow:
-      0 0 8px #e88ab880,
-      0 0 16px #e0a33f60;
-  }
-}
-/* Spin = proxy state. 6s per turn reads as a room light, not a spinner. */
-@keyframes nv-spin {
-  to {
-    transform: rotate(360deg);
-  }
-}
-.nv-ball[data-state="running"] {
-  animation: nv-spin 6s linear infinite;
-}
-.nv-ball[data-state="paused"] {
-  animation: nv-spin 6s linear infinite;
-  animation-play-state: paused;
-}
-.nv-ball[data-state="stopped"] {
-  filter: grayscale(1);
-  opacity: 0.55;
-}
-@media (prefers-reduced-motion: reduce) {
-  .nv-ball[data-state="running"] {
-    animation: none;
-  }
+  font: italic 900 21px / 1 var(--sans);
+  letter-spacing: 0.02em;
+  background-image:
+    linear-gradient(
+      110deg,
+      transparent 38%,
+      #ffffff60 45%,
+      #ffffffe6 50%,
+      #ffffff60 55%,
+      transparent 62%
+    ),
+    linear-gradient(180deg, #ffd7ec, #f6a8d4 45%, #ffe0a3 52%, #e0a33f);
+  filter: drop-shadow(0 0 5px #e88ab870) drop-shadow(0 0 12px #e0a33f40);
 }
 .sidebar-label {
   display: flex;
@@ -1287,6 +1331,24 @@ input[role="switch"]:disabled {
   display: flex;
   flex-direction: column;
 }
+.provider-group + .provider-group {
+  margin-top: 2rem;
+}
+.provider-group-heading {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 0.35rem 0.75rem;
+}
+.provider-group-heading h2 {
+  font-size: var(--text-subheading);
+  font-weight: 600;
+  letter-spacing: -0.02em;
+}
+.provider-group-heading > span {
+  color: var(--ink-3);
+  font-size: var(--text-caption);
+}
 .accounts-columns,
 .account-row {
   display: grid;
@@ -1358,6 +1420,17 @@ input[role="switch"]:disabled {
   color: var(--ink-3);
   overflow-wrap: anywhere;
   max-width: 100%;
+}
+.account-resets {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 3px;
+  color: var(--ink-3);
+  font-size: var(--text-caption);
+}
+.account-resets.available {
+  color: var(--amber-text);
 }
 .account-limits {
   display: grid;

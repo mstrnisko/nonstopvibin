@@ -31,7 +31,6 @@ import {
   CopyButton,
   Modal,
   ProviderIcon,
-  SecretNote,
   Select,
 } from "./components.tsx";
 
@@ -582,7 +581,7 @@ export function AddSubscription({
                 </div>
               )}
               <p className="field-note">
-                The provider handles sign-in. nonstopvibin never asks for your
+                The provider handles sign-in. NonstopVibin never asks for your
                 account password.
               </p>
             </div>
@@ -665,7 +664,6 @@ export function AddSubscription({
                   placeholder="Paste your key"
                 />
               </label>
-              <SecretNote />
               <details open={presetId === "custom"}>
                 <summary>Endpoint and models</summary>
                 <label className="field">

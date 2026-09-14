@@ -22,8 +22,9 @@ profile. Cross-profile credential fallback is forbidden, even under exhaustion.
   the preload exposes a narrow bridge rather than arbitrary IPC or filesystem APIs.
 - `safeExternal` restricts browser launches to HTTPS provider hosts. OAuth flow
   state and profile ownership are enforced by `CorePool`.
-- Desktop secret encryption uses Electron `safeStorage` and refuses Linux
-  `basic_text`; `fileKeyCodec` is a development-only AES-GCM local-key mechanism.
+- Desktop and development use `fileKeyCodec`: AES-GCM with an owner-only
+  `vault.key` beside SQLite in `~/.nonstopvibin` (or the explicit data override).
+  No system keychain is required; access to both files permits decryption.
 
 ## Threat model
 
@@ -58,8 +59,8 @@ plaintext generated configuration and OAuth files in 0700/0600 storage.
 - `providerURL` intentionally permits HTTP for loopback custom providers only.
   Authenticated users may configure HTTPS providers; inspect reachability before
   calling every user-selected URL a remotely exploitable server-side request.
-- `fileKeyCodec` deliberately stores a development key in an owner-only file;
-  packaged startup injects safeStorage and must never silently fall back to it.
+- `fileKeyCodec` deliberately stores the encryption key in an owner-only file
+  in both desktop and development; this does not protect against the same OS user.
 - `scripts/preview.ts` builds explicitly simulated local accounts for visual QA.
   It must remain a development script, outside the packaged application.
 - Quota and request accounting are best-effort observations, not a billing ledger;

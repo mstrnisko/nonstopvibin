@@ -8,7 +8,7 @@ import type {
 } from "../shared/types.ts";
 import { api } from "./api.ts";
 import { modelsFor } from "../shared/providers.ts";
-import { CopyButton, Select } from "./components.tsx";
+import { CopyButton, Select, useKeepDraft } from "./components.tsx";
 
 const titles: Record<Agent, string> = {
   pi: "pi",
@@ -79,6 +79,14 @@ export function QuickSetup({
           offered.some((model) => !setup.models.includes(model.id))))),
   );
   const current = Boolean(setup && !setup.needsReconnect && !modelsChanged);
+  useKeepDraft(
+    busy ||
+      Boolean(error) ||
+      disconnected ||
+      (chooses &&
+        otherProviders !== (setup ? (setup.otherProviders ?? true) : false)) ||
+      projectDirectory !== (setup?.projectDirectory ?? ""),
+  );
   // pi and OpenCode need models.dev limits and prices; the rest are left out.
   const leftOut =
     setup && !chooses
@@ -134,10 +142,10 @@ export function QuickSetup({
     <div className="quick-setup">
       <p>
         {agent === "claude"
-          ? "Claude Code reads its settings per project. Pick the project folder; worktrees inside it are covered too."
+          ? "Choose a project to connect."
           : agent === "codex"
-            ? `Adds a “nonstopvibin-${profile.slug}” profile to Codex that you can use in any project.`
-            : `Adds ${profile.name} as a provider in ${titles[agent]}, next to the ones you already have.`}
+            ? "Connect once, use in any project."
+            : `Add ${profile.name} to ${titles[agent]}.`}
       </p>
       {agent === "claude" && (
         <div className="setup-project">
@@ -228,13 +236,11 @@ export function QuickSetup({
       {chooses && (
         <div className="setup-option">
           <div>
-            <label htmlFor="other-providers">
-              Also offer models from other providers
-            </label>
+            <label htmlFor="other-providers">Include other providers</label>
             <p>
               {otherCount
-                ? `${otherCount} non-${native} model${otherCount === 1 ? "" : "s"} in this profile. Experimental: CLIProxyAPI translates requests and tool calls between providers.`
-                : `This profile only has ${native} models right now.`}
+                ? `${otherCount} extra model${otherCount === 1 ? "" : "s"} · Experimental`
+                : `Only ${native} models available.`}
             </p>
           </div>
           <input
@@ -304,6 +310,9 @@ export function QuickSetup({
           </span>
         )}
       </div>
+      <p className="setup-note">
+        Keep NonstopVibin and this profile running while you work.
+      </p>
       {disconnected && (
         <p className="setup-note" role="status">
           Connection removed. {restart}
@@ -325,37 +334,51 @@ export function QuickSetup({
             />
           </div>
           <p>{setup.instructions}</p>
-          <p className="setup-caveat">
-            {setup.models.length} model{setup.models.length === 1 ? "" : "s"} in
-            the picker.{" "}
-            {agent === "claude"
-              ? "Needs Claude Code 2.1.243 or later. Save again after adding subscriptions."
-              : agent === "codex"
-                ? "Codex refreshes the list when it starts. Your normal Codex login stays available."
-                : "Limits and prices shown in the agent are models.dev estimates, not subscription charges."}
-          </p>
-          {leftOut.length > 0 && (
-            <p className="setup-caveat">
-              Left out, no verified pricing on models.dev:{" "}
-              <code>{leftOut.map((model) => model.id).join(", ")}</code>
-            </p>
-          )}
         </div>
       )}
       <details className="setup-details">
-        <summary>How this works</summary>
-        <p>
-          {agent === "claude"
-            ? "Updates this project’s .claude/settings.local.json and adds a separate settings file with the model picker; the launch command loads both. Managed settings or a Claude apps gateway login can take precedence."
-            : agent === "codex"
-              ? "Adds a provider and named profile to your Codex configuration. Your normal Codex login stays available."
-              : agent === "pi"
-                ? "Installs a native pi provider extension alongside your existing providers."
-                : "Adds a provider to your OpenCode configuration alongside your existing providers."}{" "}
-          The running app supplies your profile key, so keep nonstopvibin and
-          this profile running while you work. Disconnect removes only these
-          settings.
-        </p>
+        <summary>Connection details</summary>
+        <ul>
+          <li>
+            {agent === "claude"
+              ? "Saves project settings and a model picker. Includes worktrees inside the project."
+              : agent === "codex"
+                ? `Adds the nonstopvibin-${profile.slug} Codex profile. Your usual login stays available.`
+                : `Adds a ${titles[agent]} provider alongside your existing ones.`}
+          </li>
+          {agent === "claude" && (
+            <li>
+              Managed settings or a Claude gateway login may override this
+              connection.
+            </li>
+          )}
+          {chooses && otherProviders && (
+            <li>
+              Other providers use experimental request and tool-call
+              translation.
+            </li>
+          )}
+          <li>Disconnect removes only this connection’s settings.</li>
+        </ul>
+        {current && setup && (
+          <>
+            <p className="setup-caveat">
+              {setup.models.length} model{setup.models.length === 1 ? "" : "s"}{" "}
+              in the picker.{" "}
+              {agent === "claude"
+                ? "Needs Claude Code 2.1.243 or later. Save again after adding subscriptions."
+                : agent === "codex"
+                  ? "Codex refreshes the list when it starts. Your normal Codex login stays available."
+                  : "Limits and prices shown in the agent are models.dev estimates, not subscription charges."}
+            </p>
+            {leftOut.length > 0 && (
+              <p className="setup-caveat">
+                Left out, no verified pricing on models.dev:{" "}
+                <code>{leftOut.map((model) => model.id).join(", ")}</code>
+              </p>
+            )}
+          </>
+        )}
         {setup && (
           <ul>
             {setup.files.map((file) => (

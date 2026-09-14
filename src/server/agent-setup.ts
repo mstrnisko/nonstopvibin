@@ -115,7 +115,12 @@ const manifestFields = {
 const manifestSchema = z.union([
   z
     .object({
-      version: z.union([z.literal(2), z.literal(3), z.literal(4)]),
+      version: z.union([
+        z.literal(2),
+        z.literal(3),
+        z.literal(4),
+        z.literal(5),
+      ]),
       input: agentSetupSchema,
       models: z.array(z.string().min(1).max(200)).max(10000),
       ...manifestFields,
@@ -319,7 +324,8 @@ export class AgentSetup {
     create: boolean,
   ): Promise<string | undefined> {
     z.string()
-      .regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/)
+      // Older profile names could leave trailing or doubled separators after truncation.
+      .regex(/^[a-z0-9][a-z0-9-]*$/)
       .parse(profile.slug);
     if (!(await privateDirectory(this.directory, create))) return;
     const path = join(this.directory, profile.slug);
@@ -509,7 +515,7 @@ export class AgentSetup {
     const result = await this.result(profile, manifest);
     if (
       manifest.version === 1 ||
-      (agent === "pi" && manifest.version !== 4) ||
+      (agent === "pi" && manifest.version !== 5) ||
       (agent === "claude" && manifest.version !== 3)
     )
       result.needsReconnect = true;
@@ -592,7 +598,7 @@ export class AgentSetup {
       if (!folder)
         throw new AppError("Could not create the agent connection directory.");
       const manifest: Manifest = {
-        version: validated.agent === "pi" ? 4 : 3,
+        version: validated.agent === "pi" ? 5 : 3,
         input: validated,
         models: catalog,
         port,

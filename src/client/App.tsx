@@ -1,3 +1,4 @@
+import { ResetCredits } from "./ResetCredits.tsx";
 import { useCallback, useEffect, useState } from "react";
 import {
   Activity,
@@ -25,17 +26,20 @@ import {
   age,
   exactTime,
   floor,
+  groupAccountsByProvider,
   isQuotaStale,
   planLabel,
 } from "./format.ts";
 import {
   AccountSummary,
+  AnimatedLogo,
   Logo,
   Modal,
   QuotaMeter,
   Select,
   Status,
   meterLevel,
+  useKeepDraft,
 } from "./components.tsx";
 import { AddSubscription } from "./AddSubscription.tsx";
 import { Connect } from "./Connect.tsx";
@@ -48,10 +52,7 @@ const strategyLabel = {
   "round-robin": "round robin",
   "fill-first": "fill first",
 };
-function Headroom({ accounts }: { accounts: Account[] }) {
-  const groups = new Map<string, Account[]>();
-  for (const a of accounts)
-    groups.set(a.provider, [...(groups.get(a.provider) ?? []), a]);
+function Headroom({ groups }: { groups: Map<string, Account[]> }) {
   return (
     <>
       {[...groups].map(([provider, list]) => {
@@ -120,16 +121,26 @@ export function App() {
       localStorage.getItem("nv-profile") ||
       "",
   );
-  const [page, setPage] = useState<Page>("subscriptions");
+  const [page, setPage] = useState<Page>(() => {
+    const saved = localStorage.getItem("nv-page");
+    return !new URLSearchParams(location.search).has("profile") &&
+      (saved === "activity" || saved === "connect" || saved === "settings")
+      ? saved
+      : "subscriptions";
+  });
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [ready, setReady] = useState(false);
   const [busy, setBusy] = useState("");
+  useKeepDraft(Boolean(busy || error || notice));
   const [createOpen, setCreateOpen] = useState(false);
   const [addOpen, setAddOpen] = useState(false);
   const [reconnecting, setReconnecting] = useState<Account>();
   const [accountId, setAccountId] = useState("");
   const tray = new URLSearchParams(location.search).get("view") === "tray";
+  useEffect(() => {
+    if (!tray) localStorage.setItem("nv-page", page);
+  }, [page, tray]);
   const refresh = useCallback(async () => {
     const next = await api<AppState>("/state");
     setState(next);
@@ -164,10 +175,15 @@ export function App() {
         polling = false;
       }
     };
-    const timer = setInterval(tick, 4000);
+    let timer: ReturnType<typeof setInterval> | undefined;
     const onVisibilityChange = () => {
-      void tick();
+      clearInterval(timer);
+      if (!document.hidden) {
+        void tick();
+        timer = setInterval(tick, 4000);
+      }
     };
+    if (!document.hidden) timer = setInterval(tick, 4000);
     document.addEventListener("visibilitychange", onVisibilityChange);
     return () => {
       clearInterval(timer);
@@ -176,6 +192,7 @@ export function App() {
   }, [ready, refresh]);
   const profile =
     state?.profiles.find((p) => p.id === selected) ?? state?.profiles[0];
+  const accountGroups = groupAccountsByProvider(profile?.accounts ?? []);
   const account = profile?.accounts.find((a) => a.id === accountId);
   async function perform(
     label: string,
@@ -212,7 +229,7 @@ export function App() {
     return (
       <div className="fatal">
         <Logo size={40} word={false} />
-        <h1>nonstopvibin</h1>
+        <h1>NonstopVibin</h1>
         {error ? (
           <>
             <p role="alert">{error}</p>
@@ -244,7 +261,7 @@ export function App() {
     <div className={`app ${state.desktop ? "desktop" : ""}`}>
       <aside className="sidebar">
         <div className="brand">
-          <Logo
+          <AnimatedLogo
             state={
               profile?.runtime === "running"
                 ? "running"
@@ -452,7 +469,7 @@ export function App() {
                     </div>
                     <h2>Nothing pooled yet</h2>
                     <p>
-                      Connect the accounts you already pay for. nonstopvibin
+                      Connect the accounts you already pay for. NonstopVibin
                       signs in through each provider’s own OAuth flow and keeps
                       the tokens on this machine.
                     </p>
@@ -480,7 +497,7 @@ export function App() {
                       <h2 className="label headroom-heading">
                         Headroom by provider
                       </h2>
-                      <Headroom accounts={profile.accounts} />
+                      <Headroom groups={accountGroups} />
                       <div className="headroom-routing">
                         <label className="label" htmlFor="routing">
                           Routing
@@ -512,105 +529,135 @@ export function App() {
                       </div>
                     </div>
                     <div className="accounts">
-                      <div className="accounts-columns">
-                        <span className="label">Subscription</span>
-                        <span className="label">Limits</span>
-                        <span />
-                      </div>
-                      {profile.accounts.map((a, index) => {
-                        // Account-wide limits first; model-only windows fill spare slots.
-                        const windows = [...(a.quota?.windows ?? [])]
-                          .sort(
-                            (x, y) => Number(!!x.scoped) - Number(!!y.scoped),
-                          )
-                          .slice(0, 3);
-                        const v = floor(a);
-                        const stale = isQuotaStale(a.quota);
-                        const tag = a.disabled
-                          ? ["Paused", "out"]
-                          : a.quota?.status === "error"
-                            ? ["Check failed", "bad"]
-                            : v === 0
-                              ? ["Out", "out"]
-                              : v !== null && v < 20
-                                ? ["Low", "warn"]
-                                : stale && a.quota
-                                  ? ["Stale", ""]
-                                  : null;
-                        return (
-                          <div
-                            className={`account-row ${a.disabled ? "disabled" : ""}`}
-                            style={{ animationDelay: `${index * 30}ms` }}
-                            key={a.id}
-                          >
-                            <button
-                              className="account-button"
-                              onClick={() => setAccountId(a.id)}
-                            >
-                              <span className="account-name">
-                                <strong>{accountLabel(a)}</strong>
-                                {tag && (
-                                  <span className={`tag ${tag[1]}`}>
-                                    {tag[0]}
-                                    {tag[0] === "Stale" && (
-                                      <code>
-                                        {age(a.quota?.checkedAt).replace(
-                                          /^checked /,
-                                          "",
+                      {[...accountGroups].map(([provider, accounts]) => (
+                        <section
+                          className="provider-group"
+                          key={provider}
+                          aria-label={`${providerLabel(provider)} subscriptions`}
+                        >
+                          <div className="accounts-columns">
+                            <div className="provider-group-heading">
+                              <h2>{providerLabel(provider)}</h2>
+                              <span>
+                                {accounts.length} subscription
+                                {accounts.length === 1 ? "" : "s"}
+                              </span>
+                            </div>
+                            <span className="label">Limits</span>
+                            <span />
+                          </div>
+                          {accounts.map((a, index) => {
+                            // Account-wide limits first; model-only windows fill spare slots.
+                            const windows = [...(a.quota?.windows ?? [])]
+                              .sort(
+                                (x, y) =>
+                                  Number(!!x.scoped) - Number(!!y.scoped),
+                              )
+                              .slice(0, 3);
+                            const v = floor(a);
+                            const stale = isQuotaStale(a.quota);
+                            const tag = a.disabled
+                              ? ["Paused", "out"]
+                              : a.quota?.status === "error"
+                                ? ["Check failed", "bad"]
+                                : v === 0
+                                  ? ["Out", "out"]
+                                  : v !== null && v < 20
+                                    ? ["Low", "warn"]
+                                    : stale && a.quota
+                                      ? ["Stale", ""]
+                                      : null;
+                            return (
+                              <div
+                                className={`account-row ${a.disabled ? "disabled" : ""}`}
+                                style={{ animationDelay: `${index * 30}ms` }}
+                                key={a.id}
+                              >
+                                <button
+                                  className="account-button"
+                                  onClick={() => setAccountId(a.id)}
+                                >
+                                  <span className="account-name">
+                                    <strong>{accountLabel(a)}</strong>
+                                    {tag && (
+                                      <span className={`tag ${tag[1]}`}>
+                                        {tag[0]}
+                                        {tag[0] === "Stale" && (
+                                          <code>
+                                            {age(a.quota?.checkedAt).replace(
+                                              /^checked /,
+                                              "",
+                                            )}
+                                          </code>
                                         )}
-                                      </code>
+                                      </span>
                                     )}
                                   </span>
-                                )}
-                              </span>
-                              <span className="account-meta">
-                                <span>
-                                  {a.email ??
-                                    (a.kind === "api-key"
-                                      ? `${a.modelCount ?? 0} model${a.modelCount === 1 ? "" : "s"}`
-                                      : "OAuth")}
-                                </span>
-                                <span>
-                                  {providerLabel(a.provider)}
-                                  {a.quota?.plan &&
-                                    ` · ${planLabel(a.quota.plan)}`}
-                                </span>
-                              </span>
-                            </button>
-                            <div className="account-limits">
-                              {windows.length ? (
-                                windows.map((w) => (
-                                  <QuotaMeter
-                                    key={w.label}
-                                    window={w}
-                                    stale={stale}
-                                  />
-                                ))
-                              ) : (
-                                <QuotaMeter
-                                  label={
-                                    a.quota?.status === "unavailable"
-                                      ? "limits"
-                                      : "not checked"
-                                  }
-                                  unavailable={
-                                    a.quota?.status === "unavailable"
-                                      ? "not reported"
-                                      : "refresh to check"
-                                  }
-                                />
-                              )}
-                            </div>
-                            <button
-                              className="icon-button"
-                              aria-label={`Details for ${accountLabel(a)}`}
-                              onClick={() => setAccountId(a.id)}
-                            >
-                              <MoreHorizontal size={16} />
-                            </button>
-                          </div>
-                        );
-                      })}
+                                  <span className="account-meta">
+                                    <span>
+                                      {a.email ??
+                                        (a.kind === "api-key"
+                                          ? `${a.modelCount ?? 0} model${a.modelCount === 1 ? "" : "s"}`
+                                          : "OAuth")}
+                                    </span>
+                                    {a.quota?.plan && (
+                                      <span>{planLabel(a.quota.plan)}</span>
+                                    )}
+                                  </span>
+                                  {a.provider === "codex" &&
+                                    a.kind === "oauth" && (
+                                      <span
+                                        className={`account-resets ${!stale && (a.quota?.bankedResets ?? 0) > 0 ? "available" : ""}`}
+                                      >
+                                        <RefreshCw
+                                          size={13}
+                                          aria-hidden="true"
+                                        />
+                                        {stale ||
+                                        a.quota?.bankedResets === undefined
+                                          ? "Check banked resets"
+                                          : a.quota.bankedResets === 0
+                                            ? "No banked resets"
+                                            : `${a.quota.bankedResets} banked ${a.quota.bankedResets === 1 ? "reset" : "resets"}`}
+                                      </span>
+                                    )}
+                                </button>
+                                <div className="account-limits">
+                                  {windows.length ? (
+                                    windows.map((w) => (
+                                      <QuotaMeter
+                                        key={w.label}
+                                        window={w}
+                                        stale={stale}
+                                      />
+                                    ))
+                                  ) : (
+                                    <QuotaMeter
+                                      label={
+                                        a.quota?.status === "unavailable"
+                                          ? "limits"
+                                          : "not checked"
+                                      }
+                                      unavailable={
+                                        a.quota?.status === "unavailable"
+                                          ? "not reported"
+                                          : "refresh to check"
+                                      }
+                                    />
+                                  )}
+                                </div>
+                                <button
+                                  className="icon-button"
+                                  aria-label={`Details for ${accountLabel(a)}`}
+                                  onClick={() => setAccountId(a.id)}
+                                >
+                                  <MoreHorizontal size={16} />
+                                </button>
+                              </div>
+                            );
+                          })}
+                        </section>
+                      ))}
                     </div>
                     <div className="accounts-note">
                       <p>
@@ -641,9 +688,8 @@ export function App() {
           <span>
             {profile
               ? `${profile.accounts.length} subscription${profile.accounts.length === 1 ? "" : "s"} · ${providers} provider${providers === 1 ? "" : "s"}`
-              : `nonstopvibin ${state.version}`}
+              : `NonstopVibin ${state.version}`}
           </span>
-          <span>local only</span>
         </footer>
       </main>
       {createOpen && (
@@ -860,6 +906,15 @@ function AccountDetails({
             ? "This provider does not expose a supported quota window. Request and token history is still recorded."
             : "Use Check quotas to fetch the provider’s current limits."}
         </p>
+      )}
+      {account.provider === "codex" && account.kind === "oauth" && (
+        <ResetCredits
+          key={`${profile.id}:${account.id}`}
+          profileId={profile.id}
+          accountId={account.id}
+          running={profile.runtime === "running"}
+          refresh={refresh}
+        />
       )}
       <hr />
       <form

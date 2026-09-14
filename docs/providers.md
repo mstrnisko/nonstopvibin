@@ -15,3 +15,27 @@
 Subscription support follows the bundled [CLIProxyAPI core](https://github.com/router-for-me/CLIProxyAPI), which supports Claude OAuth login and multi-account load balancing. Connect a Claude subscription through **Sign in → Claude**, or import an existing CLIProxyAPI auth file into its profile. Anthropic API keys are a separate connection option.
 
 OpenCode Go is a subscription accessed with an API key, rather than an OAuth sign-in. It publishes model-specific wire protocols; nonstopvibin prefers discovery metadata and handles known model families. [OpenCode Go documentation](https://opencode.ai/docs/go/).
+
+## Codex banked resets
+
+Open a Codex subscription’s details to load banked resets automatically. Choose
+**Review reset** on a credit, then confirm **Use 1 reset**. The app shows its scope and expiration,
+redeems only that credit, then refreshes usage. API-key accounts do not support
+subscription resets. Nothing is redeemed automatically.
+
+This uses OpenAI’s ChatGPT backend through CLIProxyAPI’s authenticated management
+`/api-call`, not the public OpenAI inference API. The official Codex client
+implements [credit listing and consumption](https://github.com/openai/codex/blob/main/codex-rs/backend-client/src/client/rate_limit_resets.rs).
+OpenAI documents [banked resets and eligibility](https://help.openai.com/en/articles/20001498).
+The provider decides which usage windows can reset; a full reset can change the
+weekly reset date.
+
+Retries for the same account and credit reuse a persisted redemption ID, including
+after an uncertain network response or app restart. Successful IDs remain saved;
+definitive `nothing_to_reset` and `no_credit` responses permit a fresh attempt.
+
+The pinned 7.2.151 core forwards redemption but predates upstream’s
+[cooldown clearing fix](https://github.com/router-for-me/CLIProxyAPI/commit/80234b5).
+If requests still fail with exhausted quota after redemption, stop and start the
+profile. Synthetic tests cover the adapter and management boundaries; live credit
+redemption has not been tested and no real credit was consumed during development.

@@ -12,9 +12,11 @@ change without notice during the 0.x release series.
 ## Supported deployment
 
 The application is a loopback desktop service on macOS/Linux, not an internet-facing
-or multi-user hosted proxy. Profiles separate account pools, not OS users. Electron
-safeStorage protects SQLite secrets; the upstream core still requires plaintext
-OAuth/config files in owner-only directories. See [storage documentation](docs/architecture.md) for storage locations.
+or multi-user hosted proxy. Profiles separate account pools, not OS users. SQLite
+secrets use AES-GCM with an owner-only vault.key stored beside the database; software
+running as the same OS user can read both and decrypt them. The upstream core also
+requires plaintext OAuth/config files in owner-only directories. See
+[storage documentation](docs/architecture.md) for storage locations.
 
 ## Reporting
 
@@ -77,7 +79,7 @@ TypeScript wrapper does not audit the upstream Go implementation or binary.
   `scripts/verify-package.cjs` checks the unsigned copy against the reviewed input.
   Until the first signed release, say that builds are unsigned in the README and
   release notes. Test installation, launch, quit, and reopen on a clean machine.
-  Test Linux keyring behavior and unavailable-keyring refusal.
+  Test owner-only storage permissions and credential persistence after reopening.
 - Run end-to-end provider verification only with deliberately assigned test accounts.
   Keep live credentials and customer/work profiles out of reusable fixtures.
 - Resolve high/critical findings and document remaining limitations. Dependency and

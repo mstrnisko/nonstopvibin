@@ -415,7 +415,21 @@ try {
     "an unavailable restored profile does not fall back to Work",
   );
   assert.match(missing.footer, /personal/);
-  for (const item of [work, personal, restored, missing])
+  await rm(join(root, "personal-key"));
+  const deleted = await openSession("work", work.manager);
+  await restored.session.reload();
+  for (const item of [deleted, restored]) {
+    assert.equal(
+      item.modelRuntime.getModel("nonstopvibin-personal", "shared"),
+      undefined,
+    );
+    const before = requests.length;
+    await item.session.prompt("Synthetic deleted-profile request");
+    assert.equal(requests.length, before);
+    await item.session.prompt("/nv work");
+    assert.equal(item.session.model.provider, "nonstopvibin-work");
+  }
+  for (const item of [work, personal, restored, missing, deleted])
     assert.deepEqual(item.errors, []);
   const version = JSON.parse(
     await readFile(join(packageDir, "package.json"), "utf8"),

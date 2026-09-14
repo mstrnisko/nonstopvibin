@@ -1,6 +1,7 @@
 import { agentModels } from "./model-catalog.ts";
+import { UsagePrices } from "./usage-pricing.ts";
 import http, { type IncomingMessage, type ServerResponse } from "node:http";
-import { readFile, mkdir } from "node:fs/promises";
+import { readFile, mkdir, stat } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { extname, resolve } from "node:path";
 import { randomBytes, randomUUID } from "node:crypto";
@@ -13,7 +14,7 @@ import type {
 } from "../shared/types.ts";
 import { goModelProtocol, modelsFor } from "../shared/providers.ts";
 import { Store } from "./store.ts";
-import { fileKeyCodec, type SecretCodec } from "./vault.ts";
+import { fileKeyCodec } from "./vault.ts";
 import { CorePool } from "./core.ts";
 import { Gateway, sameSecret } from "./gateway.ts";
 import { AppError, errorMessage } from "./errors.ts";
@@ -122,7 +123,6 @@ interface ServerOptions {
   binary: string;
   clientDirectory: string;
   port?: number;
-  codec?: SecretCodec;
   desktop?: boolean;
   development?: boolean;
   agentHome?: string;
@@ -134,7 +134,10 @@ export class Application {
   readonly gateway: Gateway;
   readonly server: http.Server;
   readonly token = randomBytes(32).toString("base64url");
+  // ASAR timestamps are fabricated; revalidate unhashed files after each launch.
+  private readonly assetVersion = randomUUID();
   readonly imports = new ImportCatalog();
+  readonly usagePrices = new UsagePrices();
   readonly agentSetup: AgentSetup;
   port = 0;
   closing = false;
@@ -205,12 +208,10 @@ export class Application {
   }
   static async create(options: ServerOptions): Promise<Application> {
     await mkdir(options.directory, { recursive: true, mode: 0o700 });
-    const store = new Store(
-      options.directory,
-      options.codec ?? fileKeyCodec(options.directory),
-    );
+    const store = new Store(options.directory, fileKeyCodec(options.directory));
     const app = new Application(options, store);
     try {
+      store.pruneUsage();
       await new Promise<void>((resolve, reject) => {
         app.server.once("error", reject);
         app.server.listen(options.port ?? 4318, "127.0.0.1", resolve);
@@ -259,6 +260,7 @@ export class Application {
       coreAvailable: existsSync(this.options.binary),
       gateway: this.origin,
       storage: this.store.codec.label,
+      usageRetentionDays: this.store.usageRetentionDays(),
       version: "0.1.1",
       desktop: Boolean(this.options.desktop),
       errors: this.core.errors,
@@ -276,6 +278,7 @@ export class Application {
     req: IncomingMessage,
     res: ServerResponse,
   ): Promise<void> {
+    if (this.closing) throw new AppError("nonstopvibin is shutting down.", 503);
     if (!this.validHost(req)) throw new AppError("Unrecognized host.", 403);
     const url = new URL(req.url ?? "/", this.origin);
     if (url.pathname.startsWith("/api/")) {
@@ -316,24 +319,41 @@ export class Application {
     const path = resolve(this.options.clientDirectory, relative);
     if (!path.startsWith(resolve(this.options.clientDirectory) + "/"))
       throw new AppError("Not found.", 404);
-    let bytes: Buffer;
+    let metadata;
     try {
-      bytes = await readFile(path);
+      metadata = await stat(path);
+      if (!metadata.isFile()) throw new Error("Not a file");
     } catch {
       throw new AppError(
         "Build the interface with bun run build before opening this page.",
         404,
       );
     }
-    res.writeHead(200, {
+    const etag = `W/"${this.assetVersion}-${metadata.size}-${metadata.mtimeMs}"`;
+    const unchanged = req.headers["if-none-match"]
+      ?.split(",")
+      .some(
+        (value) =>
+          value.trim() === "*" ||
+          value.trim().replace(/^W\//, "") === etag.slice(2),
+      );
+    const bytes =
+      unchanged || req.method === "HEAD" ? undefined : await readFile(path);
+    res.writeHead(unchanged ? 304 : 200, {
       "Content-Type": mime.get(extname(path)) ?? "application/octet-stream",
       "X-Content-Type-Options": "nosniff",
       "Referrer-Policy": "no-referrer",
-      "Cache-Control": "no-cache",
+      // Only Vite's fingerprinted assets survive an update without revalidation.
+      "Cache-Control": /^assets\/[^/]+-[\w-]{8,}\.(js|css|woff2)$/.test(
+        relative,
+      )
+        ? "public, max-age=31536000, immutable"
+        : "no-cache",
+      ETag: etag,
       "Content-Security-Policy":
         "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'",
     });
-    res.end(req.method === "HEAD" ? undefined : bytes);
+    res.end(bytes);
   }
   private async api(
     req: IncomingMessage,
@@ -343,6 +363,22 @@ export class Application {
     const method = req.method;
     const segments = url.pathname.split("/").filter(Boolean);
     if (url.pathname === "/api/state" && method === "GET") {
+      json(res, this.state());
+      return;
+    }
+    if (url.pathname === "/api/usage-retention" && method === "PUT") {
+      const input = z
+        .object({
+          days: z.union([
+            z.literal(0),
+            z.literal(30),
+            z.literal(90),
+            z.literal(365),
+          ]),
+        })
+        .strict()
+        .parse(await jsonBody(req));
+      this.store.setUsageRetentionDays(input.days);
       json(res, this.state());
       return;
     }
@@ -410,11 +446,19 @@ export class Application {
         .min(1)
         .max(3650)
         .parse(url.searchParams.get("days") ?? 7);
-      const since = new Date(Date.now() - days * 86_400_000).toISOString();
-      json(res, {
-        records: this.store.usage(id, since, 500),
-        summary: this.store.summary(id, since),
-      });
+      const since =
+        days === 3650
+          ? ""
+          : new Date(Date.now() - days * 86_400_000).toISOString();
+      json(
+        res,
+        await this.usagePrices.history(
+          this.store,
+          id,
+          since,
+          this.gateway.catalog,
+        ),
+      );
       return;
     }
     if (action === "agent-setup" && segments.length === 4) {
@@ -577,6 +621,27 @@ export class Application {
       json(res, this.state());
       return;
     }
+    if (
+      action === "accounts" &&
+      segments[4] &&
+      segments[5] === "reset-credits" &&
+      segments.length === 6
+    ) {
+      const accountId = decodeURIComponent(segments[4]);
+      if (method === "GET") {
+        json(res, await this.core.resetCredits(id, accountId));
+        return;
+      }
+      if (method === "POST") {
+        const { creditId } = z
+          .object({ creditId: z.string().min(1).max(500) })
+          .strict()
+          .parse(await jsonBody(req));
+        json(res, await this.core.consumeResetCredit(id, accountId, creditId));
+        return;
+      }
+      throw new AppError("Method not allowed.", 405);
+    }
     if (action === "accounts" && segments[4] && method === "PATCH") {
       const accountId = decodeURIComponent(segments[4]);
       const patch = z
@@ -667,20 +732,20 @@ export class Application {
         models,
         disabled: false,
       };
-      for (const existingProfile of this.store.profiles())
-        for (const existing of this.store.apiAccounts(existingProfile.id)) {
-          if (
-            existing.baseUrl === input.baseUrl.replace(/\/$/, "") &&
-            sameSecret(this.store.secret(`${existing.id}:api`), input.apiKey)
-          )
-            throw new AppError(
-              `This API key is already connected to ${existingProfile.name}.`,
-              409,
-            );
-        }
+      for (const existing of this.store.apiAccounts(id)) {
+        if (
+          existing.baseUrl === account.baseUrl &&
+          sameSecret(this.store.secret(`${existing.id}:api`), input.apiKey)
+        )
+          throw new AppError(
+            "This API key is already connected to this profile.",
+            409,
+          );
+      }
       this.store.saveApiAccount(id, account, input.apiKey);
       await this.core.start(id);
       await this.core.configure(id);
+      await this.core.refreshQuota(id, account.id);
       json(res, this.state(), 201);
       return;
     }
@@ -693,6 +758,7 @@ export class Application {
     this.server.closeIdleConnections();
     await this.agentSetup.close();
     await this.core.shutdown();
+    await this.usagePrices.close();
     this.server.closeAllConnections();
     this.store.close();
   }

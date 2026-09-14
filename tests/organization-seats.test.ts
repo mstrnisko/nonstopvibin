@@ -119,6 +119,11 @@ test(
       }
       if (path.startsWith("/get-auth-status") && completed.has(this))
         return { status: "ok" };
+      if (path === "/api-call")
+        return {
+          status_code: 200,
+          body: { five_hour: { utilization: 25 } },
+        };
       return originalManagement.call(this, profileId, path, method, body);
     };
     globalThis.fetch = Object.assign(
@@ -175,6 +180,8 @@ test(
       const result = await core.confirmOAuth(profile.id, session.state);
       assert.equal(result.status, "ok");
       assert.ok(result.status === "ok" && result.account);
+      if (!result.account.disabled)
+        assert.equal(result.account.quota?.windows[0]?.remainingPercent, 75);
       return result.account;
     }
     try {
@@ -325,21 +332,28 @@ test(
         },
       );
       await t.test(
-        "cross-profile duplicate seats and independently issued token imports are rejected",
+        "the same seat can be added and reconnected independently in another profile",
         async () => {
+          const before = await readFile(
+            join(core.directory(first.id), "auth", firstId),
+            "utf8",
+          );
           const session = await authorize(
             second,
             credential(organizationA, "another-token"),
           );
           const result = await core.oauthStatus(second.id, session.state);
           assert.ok(result.status === "review");
-          assert.equal(result.review.action, "blocked");
-          assert.equal(result.review.existingProfileId, first.id);
-          await assert.rejects(
-            core.confirmOAuth(second.id, session.state),
-            /First profile/,
+          assert.equal(result.review.action, "add");
+          const account = await confirm(second, session);
+          assert.notEqual(account.id, firstId);
+          assert.equal(account.disabled, false);
+          const reconnect = await authorize(
+            second,
+            credential(organizationA, "reconnect-second"),
+            account.id,
           );
-          await core.cancelOAuth(second.id, session.state);
+          assert.equal((await confirm(second, reconnect)).id, account.id);
           await assert.rejects(
             core.importAuth(
               second.id,
@@ -347,7 +361,46 @@ test(
             ),
             /already connected/,
           );
-          assert.equal(core.accounts(second.id).length, 0);
+          const imported = await core.importAuth(
+            second.id,
+            credential(organizationB),
+          );
+          assert.notEqual(imported.id, secondId);
+          assert.equal(imported.quota?.windows[0]?.remainingPercent, 75);
+          assert.equal(
+            await readFile(
+              join(core.directory(first.id), "auth", firstId),
+              "utf8",
+            ),
+            before,
+          );
+          assert.equal(core.accounts(first.id).length, 2);
+          assert.equal(core.accounts(second.id).length, 2);
+        },
+      );
+      await t.test(
+        "identical Codex credentials can be imported into multiple profiles but only once per profile",
+        async () => {
+          const raw = {
+            type: "codex",
+            access_token: "synthetic-codex-shared",
+            refresh_token: "synthetic-refresh-shared",
+            expired: "2099-01-01T00:00:00Z",
+          };
+          const profiles = [
+            store.createProfile("Codex A", "forest"),
+            store.createProfile("Codex B", "blue"),
+          ];
+          const accounts = [];
+          for (const profile of profiles) {
+            accounts.push(await core.importAuth(profile.id, raw));
+            await assert.rejects(
+              core.importAuth(profile.id, raw),
+              /already connected/,
+            );
+            assert.equal(core.accounts(profile.id).length, 1);
+          }
+          assert.notEqual(accounts[0]!.id, accounts[1]!.id);
         },
       );
       await t.test(

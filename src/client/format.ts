@@ -1,5 +1,17 @@
 import type { Account, Quota } from "../shared/types.ts";
 
+export function groupAccountsByProvider(
+  accounts: Account[],
+): Map<string, Account[]> {
+  const groups = new Map<string, Account[]>();
+  for (const account of accounts) {
+    const group = groups.get(account.provider);
+    if (group) group.push(account);
+    else groups.set(account.provider, [account]);
+  }
+  return groups;
+}
+
 /** Lowest remaining account-wide window: the limit a request hits first.
     Model-scoped windows (Opus, Fable…) never mark the whole account out. */
 export function floor(account: Account): number | null {
@@ -36,11 +48,17 @@ export function accountLabel(account: Account): string {
     : account.name;
 }
 
+const standardCount = new Intl.NumberFormat("en", { maximumFractionDigits: 1 });
+const compactCount = new Intl.NumberFormat("en", {
+  notation: "compact",
+  maximumFractionDigits: 1,
+});
 export function count(n: number): string {
-  return new Intl.NumberFormat("en", {
-    notation: n >= 100_000 ? "compact" : "standard",
-    maximumFractionDigits: 1,
-  }).format(n);
+  return (n >= 100_000 ? compactCount : standardCount).format(n);
+}
+export function dateLabel(value: string, format: Intl.DateTimeFormat): string {
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? "Invalid Date" : format.format(date);
 }
 export function csvCell(value: string): string {
   return `"${value

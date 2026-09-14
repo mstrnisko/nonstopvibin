@@ -228,10 +228,17 @@ export function parseQuota(
     }
   }
   const plan = text(body.plan_type);
+  const bankedResets =
+    provider === "codex"
+      ? number(record(body.rate_limit_reset_credits).available_count)
+      : null;
   return {
     status: windows.length ? "available" : "unavailable",
     windows,
     checkedAt: new Date(now).toISOString(),
     ...(plan !== undefined && { plan }),
+    ...(bankedResets !== null &&
+      Number.isSafeInteger(bankedResets) &&
+      bankedResets >= 0 && { bankedResets }),
   };
 }

@@ -7,11 +7,16 @@ export interface SecretCodec {
   decrypt(value: string): string;
   label: string;
 }
-// Headless development uses a local key protected by OS file permissions. Desktop injects safeStorage.
+// Desktop and development share an owner-only local encryption key.
 export function fileKeyCodec(directory: string): SecretCodec {
   const path = join(directory, "vault.key");
-  if (!existsSync(path))
+  if (!existsSync(path)) {
+    if (existsSync(join(directory, "nonstopvibin.sqlite")))
+      throw new Error(
+        "vault.key is missing for an existing database. Restore its matching key from your backup.",
+      );
     writeFileSync(path, randomBytes(32), { mode: 0o600, flag: "wx" });
+  }
   chmodSync(path, 0o600);
   const key = readFileSync(path);
   if (key.length !== 32)

@@ -35,9 +35,9 @@ imports, filesystem work, and synchronous IPC can block the UI. Profile before
 optimizing and keep substantial synchronous work out of the main-process hot path.
 [Electron performance](https://www.electronjs.org/docs/latest/tutorial/performance).
 
-SafeStorage depends on the OS backend. Preserve the Linux `basic_text` refusal and
-check behavior with and without an available keyring; do not generalize a macOS
-result to Linux. [safeStorage](https://www.electronjs.org/docs/latest/api/safe-storage).
+Desktop and development use the same local AES-GCM vault. Preserve owner-only
+permissions on vault.key, SQLite, and core credential files. The key lives beside
+the database, so this does not protect against software running as the same OS user.
 
 Project-specific lifecycle checks: close-to-tray differs from Quit; verify an actual
 process exit after gateway/core shutdown, then reopen. Test activate/second-instance

@@ -85,6 +85,7 @@ export class Gateway {
   readonly core: CorePool;
   readonly active = new Map<string, number>();
   readonly catalog = new ModelCatalog();
+  onActivityChange?: () => void;
   constructor(store: Store, core: CorePool) {
     this.store = store;
     this.core = core;
@@ -97,14 +98,18 @@ export class Gateway {
         429,
       );
     this.active.set(profileId, count + 1);
+    this.core.markUsageActivity(profileId);
+    if (count === 0) this.onActivityChange?.();
     let released = false;
     return () => {
       if (released) return;
       released = true;
+      this.core.markUsageActivity(profileId);
       this.active.set(
         profileId,
         Math.max(0, (this.active.get(profileId) ?? 1) - 1),
       );
+      if (this.active.get(profileId) === 0) this.onActivityChange?.();
     };
   }
   async proxy(req: IncomingMessage, res: ServerResponse): Promise<void> {

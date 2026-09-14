@@ -10,7 +10,7 @@ import {
   rm,
   lstat,
 } from "node:fs/promises";
-import { existsSync } from "node:fs";
+import { createReadStream, existsSync } from "node:fs";
 import { join } from "node:path";
 import { createServer } from "node:net";
 import {
@@ -37,6 +37,8 @@ import { oauthProviders, providerLabel } from "../shared/providers.ts";
 import { coreConfiguration, type CoreConfiguration } from "./config.ts";
 import { AppError, errorMessage } from "./errors.ts";
 import { number, parse, record, responseJson, text, unwrap } from "./json.ts";
+import { pricingTokens } from "./usage-pricing.ts";
+import { resetCreditsSchema, resetResultSchema } from "./reset-credits.ts";
 import { parseQuota } from "./quota.ts";
 import { Store } from "./store.ts";
 import { claudeIdentity, sameSeat, verifyClaudeIdentity } from "./identity.ts";
@@ -51,6 +53,8 @@ interface Runtime {
   /** ChatGPT account IDs by credential file; Codex quota calls need them. */
   chatgptAccountIds: Map<string, string>;
   lastSyncedAt?: string;
+  nextUsageAt: number;
+  usageActiveUntil: number;
 }
 const quotaEndpoints: Record<OAuthProvider, string> = {
   claude: "https://api.anthropic.com/api/oauth/usage",
@@ -103,7 +107,12 @@ export class CorePool {
   };
   private callbackServer?: HttpServer;
   private polling?: Promise<void>;
+  private maintenance?: Promise<void>;
+  private stops = new Map<string, Promise<void>>();
+  private usageCollections = new Map<string, Promise<number>>();
+  onStatusChange?: () => void;
   private shuttingDown = false;
+  private schedulePolling?: () => void;
   errors: string[] = [];
   timer?: NodeJS.Timeout;
   constructor(store: Store, binary: string) {
@@ -157,6 +166,8 @@ export class CorePool {
     return config;
   }
   async start(profileId: string): Promise<void> {
+    const stopping = this.stops.get(profileId);
+    if (stopping) await stopping;
     if (this.shuttingDown)
       throw new AppError("nonstopvibin is shutting down.", 503);
     if (this.reconnectingProfile === profileId)
@@ -202,16 +213,20 @@ export class CorePool {
       stopping: false,
       accounts: [],
       chatgptAccountIds: new Map(),
+      nextUsageAt: 0,
+      usageActiveUntil: 0,
     };
     this.runtimes.set(profileId, runtime);
     child.once("error", (error) => {
       runtime.state = "error";
       runtime.error = `Could not launch proxy: ${error.message}`;
+      this.onStatusChange?.();
     });
     child.once("exit", (code, signal) => {
       runtime.state = runtime.stopping ? "stopped" : "error";
       if (!runtime.stopping)
         runtime.error = `Proxy exited (${signal ?? code}). Restart this profile to reconnect.`;
+      this.onStatusChange?.();
     });
     let lastError = "";
     for (let attempt = 0; attempt < 80; attempt++) {
@@ -219,9 +234,11 @@ export class CorePool {
       try {
         await this.management(profileId, "/config");
         runtime.state = "running";
+        this.schedulePolling?.();
         const profile = this.store.profile(profileId);
         this.store.saveProfile({ ...profile, enabled: true });
         await this.syncAccounts(profileId);
+        this.onStatusChange?.();
         return;
       } catch (error) {
         lastError = errorMessage(error);
@@ -242,20 +259,39 @@ export class CorePool {
       );
     const starting = this.starting.get(profileId);
     if (starting) await starting.catch(() => undefined);
+    let operation = this.stops.get(profileId);
+    if (!operation) {
+      operation = this.stopProcess(profileId);
+      this.stops.set(profileId, operation);
+    }
+    try {
+      await operation;
+      if (persist)
+        this.store.saveProfile({
+          ...this.store.profile(profileId),
+          enabled: false,
+        });
+    } finally {
+      if (this.stops.get(profileId) === operation) this.stops.delete(profileId);
+    }
+  }
+  private async stopProcess(profileId: string): Promise<void> {
     const runtime = this.runtimes.get(profileId);
     if (
       runtime &&
       runtime.child.exitCode === null &&
       runtime.child.signalCode === null
     ) {
+      runtime.stopping = true;
       if (runtime.state === "running") {
         try {
-          await this.collectUsage(profileId);
+          while ((await this.collectUsage(profileId)) === 500) {
+            // Full destructive queue pages must be persisted before terminating the core.
+          }
         } catch (error) {
           this.report(`Usage before stop: ${errorMessage(error)}`);
         }
       }
-      runtime.stopping = true;
       // The process can exit while the final usage request is in flight.
       if (
         runtime.child.exitCode === null &&
@@ -271,15 +307,15 @@ export class CorePool {
       }
       runtime.state = "stopped";
     }
-    if (persist)
-      this.store.saveProfile({
-        ...this.store.profile(profileId),
-        enabled: false,
-      });
   }
   port(profileId: string): number {
     const runtime = this.runtimes.get(profileId);
-    if (!runtime || runtime.state !== "running")
+    if (
+      !runtime ||
+      runtime.state !== "running" ||
+      runtime.stopping ||
+      this.shuttingDown
+    )
       throw new AppError(
         "This profile is stopped. Start it in nonstopvibin.",
         503,
@@ -320,7 +356,10 @@ export class CorePool {
     };
     for (let attempt = 0; attempt < 60; attempt++) {
       const actual = record(await this.management(profileId, "/config"));
-      if (fields.every((key) => matches(expected[key], actual[key]))) return;
+      if (fields.every((key) => matches(expected[key], actual[key]))) {
+        this.onStatusChange?.();
+        return;
+      }
       await delay(100);
     }
     throw new AppError(
@@ -360,7 +399,13 @@ export class CorePool {
   }
   async syncAccounts(profileId: string): Promise<void> {
     const runtime = this.runtimes.get(profileId);
-    if (!runtime || runtime.state !== "running") return;
+    if (
+      !runtime ||
+      runtime.state !== "running" ||
+      runtime.stopping ||
+      this.shuttingDown
+    )
+      return;
     const response = record(await this.management(profileId, "/auth-files"));
     if (!Array.isArray(response.files))
       throw new AppError("The proxy returned an unexpected account list.", 502);
@@ -571,7 +616,7 @@ export class CorePool {
           "The provider returned an unsupported callback address.",
           502,
         );
-      await this.closeCallback();
+      this.closeCallback();
       const server = createHttpServer((req, res) => {
         let incoming: URL;
         try {
@@ -601,7 +646,7 @@ export class CorePool {
             res.end(
               '<!doctype html><title>nonstopvibin</title><body style="font:16px system-ui;padding:64px;background:#fbfcf9;color:#275b42"><h1>Sign-in received.</h1><p>Return to nonstopvibin to finish connecting your subscription. You can close this tab.</p>',
             );
-            void this.closeCallback();
+            this.closeCallback(false);
           },
           () => {
             res.writeHead(400);
@@ -672,17 +717,17 @@ export class CorePool {
         await this.stop(this.oauth.profileId, false);
       }
     }
-    await this.closeCallback();
+    this.closeCallback();
     this.oauth = undefined;
   }
-  private async closeCallback(): Promise<void> {
+  private closeCallback(force = true): void {
     const server = this.callbackServer;
     this.callbackServer = undefined;
-    if (server)
-      await new Promise<void>((resolve) => {
-        server.close(() => resolve());
-        server.closeIdleConnections();
-      });
+    if (!server) return;
+    // Stop accepting callbacks now. Do not wait for handlers queued behind this OAuth action.
+    server.close();
+    if (force) server.closeAllConnections();
+    else server.closeIdleConnections();
   }
   oauthStatus(profileId: string, state: string): Promise<OAuthStatus> {
     return this.serializeOAuth(async () => {
@@ -756,8 +801,12 @@ export class CorePool {
       if (result.status === "ok" || result.status === "error") {
         this.oauth = undefined;
         clearTimeout(this.oauthExpiry);
-        await this.closeCallback();
+        this.closeCallback();
         await this.syncAccounts(profileId);
+        if (result.status === "ok" && session.provider !== "claude")
+          for (const account of this.accounts(profileId))
+            if (!account.disabled && account.provider === session.provider)
+              await this.refreshQuota(profileId, account.id);
         return result.status === "ok"
           ? { status: "ok" }
           : {
@@ -844,7 +893,7 @@ export class CorePool {
       );
     }
   }
-  private async credentialFiles(): Promise<
+  private async credentialFiles(profileId: string): Promise<
     Array<{
       profileId: string;
       profileName: string;
@@ -853,18 +902,17 @@ export class CorePool {
     }>
   > {
     const files = [];
-    for (const profile of this.store.profiles()) {
-      const directory = join(this.directory(profile.id), "auth");
-      if (!existsSync(directory)) continue;
-      for (const entry of await readdir(directory, { withFileTypes: true })) {
-        if (!entry.isFile() || !entry.name.endsWith(".json")) continue;
-        files.push({
-          profileId: profile.id,
-          profileName: profile.name,
-          id: entry.name,
-          raw: await this.readCredential(profile.id, entry.name),
-        });
-      }
+    const profile = this.store.profile(profileId);
+    const directory = join(this.directory(profile.id), "auth");
+    if (!existsSync(directory)) return [];
+    for (const entry of await readdir(directory, { withFileTypes: true })) {
+      if (!entry.isFile() || !entry.name.endsWith(".json")) continue;
+      files.push({
+        profileId: profile.id,
+        profileName: profile.name,
+        id: entry.name,
+        raw: await this.readCredential(profile.id, entry.name),
+      });
     }
     return files;
   }
@@ -878,7 +926,7 @@ export class CorePool {
     }
   > {
     const identity = claudeIdentity(credential);
-    const files = await this.credentialFiles();
+    const files = await this.credentialFiles(profileId);
     if (reconnectAccountId) {
       const target = files.find(
         (f) =>
@@ -902,13 +950,6 @@ export class CorePool {
       (f) =>
         f.raw.type === "claude" && sameSeat(identity, claudeIdentity(f.raw)),
     );
-    const elsewhere = matches.find((f) => f.profileId !== profileId);
-    if (elsewhere)
-      return {
-        action: "blocked",
-        existingProfileId: elsewhere.profileId,
-        message: `This seat is already connected to ${elsewhere.profileName}. Use its existing profile to keep usage separate.`,
-      };
     if (matches.length > 1)
       return {
         action: "blocked",
@@ -946,7 +987,7 @@ export class CorePool {
       throw new AppError(
         "Choose a CLIProxyAPI OAuth JSON file. It must contain a supported type and token.",
       );
-    const files = await this.credentialFiles();
+    const files = await this.credentialFiles(profileId);
     const prior = reconnectAccountId
       ? files.find(
           (f) => f.profileId === profileId && f.id === reconnectAccountId,
@@ -1032,6 +1073,8 @@ export class CorePool {
         "The proxy has not registered this subscription yet. Refresh the profile.",
         503,
       );
+    if (!account.disabled)
+      account.quota = await this.refreshQuota(profileId, account.id);
     return account;
   }
   setAccount(
@@ -1088,6 +1131,110 @@ export class CorePool {
         await this.syncAccounts(profileId);
       }
     });
+  }
+  private codexResetAccount(profileId: string, accountId: string) {
+    const runtime = this.runtimes.get(profileId);
+    if (!runtime || runtime.state !== "running" || runtime.stopping)
+      throw new AppError("Start this profile first.", 409);
+    const account = runtime.accounts.find((a) => a.id === accountId);
+    if (!account) throw new AppError("Account not found in this profile.", 404);
+    if (account.provider !== "codex" || account.kind !== "oauth")
+      throw new AppError("Banked resets require a Codex subscription.");
+    const identity = runtime.chatgptAccountIds.get(accountId);
+    if (!identity || !account.authIndex)
+      throw new AppError(
+        "Reconnect this subscription to verify its account identity.",
+        409,
+      );
+    return { account, identity };
+  }
+  private async codexResetCall(
+    profileId: string,
+    accountId: string,
+    creditId?: string,
+  ) {
+    const { account, identity } = this.codexResetAccount(profileId, accountId);
+    const response = record(
+      await this.management(profileId, "/api-call", "POST", {
+        auth_index: account.authIndex,
+        method: creditId ? "POST" : "GET",
+        url: `https://chatgpt.com/backend-api/wham/rate-limit-reset-credits${creditId ? "/consume" : ""}`,
+        header: {
+          Authorization: "Bearer $TOKEN$",
+          "Content-Type": "application/json",
+          "Chatgpt-Account-Id": identity,
+          "User-Agent": "nonstopvibin/0.1.1",
+        },
+        data: creditId
+          ? JSON.stringify({
+              credit_id: creditId,
+              redeem_request_id: this.store.resetRequestId(identity, creditId),
+            })
+          : undefined,
+      }),
+    );
+    if (number(response.status_code) !== 200)
+      throw new AppError(
+        `Codex returned HTTP ${number(response.status_code) ?? "unknown"}. Retry the same reset; reconnect if authorization has expired.`,
+        502,
+      );
+    try {
+      return unwrap(response.body);
+    } catch {
+      throw new AppError(
+        "Codex returned an unreadable reset response. Retry the same reset.",
+        502,
+      );
+    }
+  }
+  async resetCredits(profileId: string, accountId: string) {
+    const result = resetCreditsSchema.safeParse(
+      await this.codexResetCall(profileId, accountId),
+    );
+    if (!result.success)
+      throw new AppError("Codex reset information is unavailable.", 502);
+    return result.data;
+  }
+  async consumeResetCredit(
+    profileId: string,
+    accountId: string,
+    creditId: string,
+  ) {
+    const { identity } = this.codexResetAccount(profileId, accountId);
+    const key = `codex-reset:${identity}`;
+    if (this.busy.has(key))
+      throw new AppError(
+        "A reset is already in progress for this subscription.",
+        409,
+      );
+    this.busy.add(key);
+    try {
+      const result = resetResultSchema.safeParse(
+        await this.codexResetCall(profileId, accountId, creditId),
+      );
+      if (!result.success)
+        throw new AppError(
+          "Reset outcome is unknown. Retry the same reset.",
+          502,
+        );
+      // Keep the identity after success or ambiguity, including across app restarts.
+      if (
+        result.data.code === "nothing_to_reset" ||
+        result.data.code === "no_credit"
+      )
+        this.store.clearResetRequest(identity, creditId);
+      let quotaRefreshed = false;
+      try {
+        quotaRefreshed =
+          (await this.refreshQuota(profileId, accountId)).status ===
+          "available";
+      } catch {
+        // Redemption is settled even if a concurrent refresh or account removal wins.
+      }
+      return { ...result.data, quotaRefreshed };
+    } finally {
+      this.busy.delete(key);
+    }
   }
   async refreshQuota(profileId: string, accountId: string): Promise<Quota> {
     const account = this.accounts(profileId).find((a) => a.id === accountId);
@@ -1192,11 +1339,17 @@ export class CorePool {
     this.store.saveQuota(profileId, accountId, quota);
     return quota;
   }
-  async collectUsage(profileId: string): Promise<void> {
-    const key = `${profileId}:usage`;
-    if (this.busy.has(key)) return;
-    this.busy.add(key);
-    try {
+  markUsageActivity(profileId: string): void {
+    const runtime = this.runtimes.get(profileId);
+    if (!runtime) return;
+    runtime.usageActiveUntil = Date.now() + 10_000;
+    runtime.nextUsageAt = 0;
+    this.schedulePolling?.();
+  }
+  collectUsage(profileId: string): Promise<number> {
+    const pending = this.usageCollections.get(profileId);
+    if (pending) return pending;
+    const collection = (async () => {
       const payload = await this.management(
         profileId,
         "/usage-queue?count=500",
@@ -1219,6 +1372,8 @@ export class CorePool {
           timestamp,
           provider: String(r.provider ?? "unknown"),
           model: String(r.alias || r.model || "unknown"),
+          upstreamModel: text(r.model),
+          pricingTokens: pricingTokens(r.token_breakdown),
           account: String(r.auth_index ?? ""),
           inputTokens: n("input_tokens"),
           outputTokens: n("output_tokens"),
@@ -1237,9 +1392,12 @@ export class CorePool {
       });
       // Store only accounting metadata. Never persist API keys, prompt bodies, or upstream error bodies.
       this.store.addUsage(records);
-    } finally {
-      this.busy.delete(key);
-    }
+      return records.length;
+    })().finally(() => {
+      this.usageCollections.delete(profileId);
+    });
+    this.usageCollections.set(profileId, collection);
+    return collection;
   }
   report(message: string): void {
     this.errors = [...this.errors.filter((e) => e !== message), message].slice(
@@ -1247,38 +1405,102 @@ export class CorePool {
     );
   }
   beginPolling(): void {
-    let tick = 0;
-    this.timer = setInterval(() => {
-      if (this.polling || this.shuttingDown) return;
-      tick++;
-      this.polling = (async () => {
-        for (const [profileId, runtime] of this.runtimes) {
-          if (this.shuttingDown) return;
-          if (runtime.state !== "running") continue;
-          try {
-            await this.collectUsage(profileId);
+    clearTimeout(this.timer);
+    let nextAccounts = Date.now() + 20_000;
+    let nextQuotas = Date.now() + 120_000;
+    let nextPrune = Date.now() + 86_400_000;
+    let scheduledAt = Infinity;
+    const schedule = () => {
+      if (this.shuttingDown) return;
+      const running = [...this.runtimes.values()].filter(
+        (runtime) => runtime.state === "running",
+      );
+      const due = Math.min(
+        this.maintenance ? Infinity : nextPrune,
+        this.maintenance || !running.length ? Infinity : nextAccounts,
+        ...(this.polling ? [] : running.map((runtime) => runtime.nextUsageAt)),
+      );
+      // Coalesce active work at two seconds; idle work sleeps until its deadline.
+      const at = Math.max(Date.now() + 2000, due);
+      if (at >= scheduledAt) return;
+      clearTimeout(this.timer);
+      scheduledAt = at;
+      this.timer = setTimeout(tick, at - Date.now());
+      this.timer.unref();
+    };
+    const tick = () => {
+      scheduledAt = Infinity;
+      this.timer = undefined;
+      if (this.shuttingDown) return;
+      if (!this.polling)
+        this.polling = (async () => {
+          for (const [profileId, runtime] of this.runtimes) {
             if (this.shuttingDown) return;
-            if (tick % 10 === 0) await this.syncAccounts(profileId);
-            if (tick % 60 === 0)
-              for (const account of this.accounts(profileId)) {
-                if (this.shuttingDown) return;
-                if (
-                  !account.disabled &&
-                  account.quota?.status !== "unavailable"
-                )
-                  await this.refreshQuota(profileId, account.id);
-              }
-          } catch (error) {
-            this.report(
-              `${this.store.profile(profileId).name}: ${errorMessage(error)}`,
-            );
+            if (runtime.state !== "running" || Date.now() < runtime.nextUsageAt)
+              continue;
+            // Reserve the idle deadline before awaiting: activity during collection
+            // must be able to bring the next drain forward again.
+            runtime.nextUsageAt = Date.now() + 30_000;
+            try {
+              const count = await this.collectUsage(profileId);
+              if (count === 500 || Date.now() < runtime.usageActiveUntil)
+                runtime.nextUsageAt = 0;
+            } catch (error) {
+              runtime.nextUsageAt = 0;
+              this.report(
+                `${this.store.profile(profileId).name}: ${errorMessage(error)}`,
+              );
+            }
           }
-        }
-      })().finally(() => {
-        this.polling = undefined;
-      });
-    }, 2000);
-    this.timer.unref();
+        })().finally(() => {
+          this.polling = undefined;
+          schedule();
+        });
+      if (
+        !this.maintenance &&
+        (Date.now() >= nextAccounts || Date.now() >= nextPrune)
+      ) {
+        const quotasDue = Date.now() >= nextQuotas;
+        nextAccounts = Date.now() + 20_000;
+        if (quotasDue) nextQuotas = Date.now() + 120_000;
+        this.maintenance = (async () => {
+          if (Date.now() >= nextPrune) {
+            nextPrune = Date.now() + 86_400_000;
+            try {
+              this.store.pruneUsage();
+            } catch (error) {
+              this.report(`History cleanup: ${errorMessage(error)}`);
+            }
+          }
+          for (const [profileId, runtime] of this.runtimes) {
+            if (this.shuttingDown) return;
+            if (runtime.state !== "running") continue;
+            try {
+              await this.syncAccounts(profileId);
+              if (quotasDue)
+                for (const account of this.accounts(profileId)) {
+                  if (this.shuttingDown || runtime.state !== "running") break;
+                  if (
+                    !account.disabled &&
+                    account.quota?.status !== "unavailable"
+                  )
+                    await this.refreshQuota(profileId, account.id);
+                }
+            } catch (error) {
+              this.report(
+                `${this.store.profile(profileId).name}: ${errorMessage(error)}`,
+              );
+            }
+          }
+        })().finally(() => {
+          this.maintenance = undefined;
+          schedule();
+        });
+      }
+      schedule();
+    };
+    this.schedulePolling = schedule;
+    schedule();
   }
   async restore(): Promise<void> {
     // Pending sign-ins never survive an app restart or enter an active profile.
@@ -1297,13 +1519,14 @@ export class CorePool {
   }
   async shutdown(): Promise<void> {
     this.shuttingDown = true;
-    clearInterval(this.timer);
+    clearTimeout(this.timer);
     await this.oauthActions.catch(() => undefined);
     await this.imports.catch(() => undefined);
     try {
       await this.clearOAuth();
     } finally {
       await this.polling;
+      await this.maintenance;
       for (const profile of this.store.profiles())
         await this.stop(profile.id, false);
     }
@@ -1312,9 +1535,10 @@ export class CorePool {
     const manifest = record(
       parse(await readFile(join(this.binary, "..", "manifest.json"), "utf8")),
     );
-    const hash = createHash("sha256")
-      .update(await readFile(this.binary))
-      .digest("hex");
+    const digest = createHash("sha256");
+    for await (const chunk of createReadStream(this.binary))
+      digest.update(chunk);
+    const hash = digest.digest("hex");
     if (manifest.binarySha256 !== hash)
       throw new AppError("The bundled core failed its integrity check.", 503);
   }

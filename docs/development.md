@@ -10,7 +10,7 @@ bun run setup       # Locked dependencies + checksum-verified proxy core
 bun run dev         # API + Vite; open the session URL printed in the terminal
 ```
 
-The development database is `.runtime`; it is separate from the desktop app. Bun loads local `.env` files automatically. Vite updates the renderer as you edit; restart `bun run dev` after server changes. Ctrl+C stops both development processes. For a clearly labeled simulation with no real subscription credentials, run `bun run preview`, then open its printed URL.
+Development defaults to `~/.nonstopvibin`, the same data folder as the desktop app. Quit the desktop app before using that data, or run `NONSTOPVIBIN_DATA_DIR=.test-runtime/dev NONSTOPVIBIN_PORT=4319 bun run dev` for isolated development. Older `.runtime` data is not imported automatically. Bun loads local `.env` files automatically. Vite updates the renderer as you edit; restart `bun run dev` after server changes. Ctrl+C stops both development processes. For a clearly labeled simulation with no real subscription credentials, run `bun run preview`, then open its printed URL.
 
 ```sh
 bun run quality     # TypeScript + Oxlint + Oxfmt checks (also run in CI)
@@ -18,9 +18,12 @@ bun run format      # Format source, tests, scripts, and project configuration
 bun test            # Add --watch to rerun while editing
 bun run build
 bun run start       # Launch the built Electron app
+bun run test:desktop # Isolated Electron lifecycle check (requires a desktop)
 bun run dist:mac     # DMG, on macOS
 bun run dist:linux   # AppImage and deb, on Linux
 ```
+
+The desktop check uses temporary data and a synthetic profile. It verifies window recreation, draft preservation, IPC bootstrap, continued proxy access with both windows closed, and renderer process exit. For memory comparisons, use a packaged build with the same enabled profiles and distinguish idle, UI-open, and request-load measurements; summed RSS includes shared pages. No universal RAM target is enforced.
 
 Use `bun ci` to restore the exact dependency versions, `bun add <package>` to add one, and `bun update` for intentional updates. Commit `bun.lock` with `package.json`. CI reads the Bun version from `packageManager` and uses a frozen install. No global Vite, TypeScript, or Electron CLI is needed.
 
@@ -42,7 +45,7 @@ an identifier operand. It remains excluded from linting and formatting.
 `src/server/json.ts` holds the shared `Json` boundary accessors the rules steer
 toward instead of `unknown`, `typeof`, and casts.
 
-Linux needs a desktop secret service such as GNOME Keyring or KWallet. The app refuses Electron's plaintext fallback. GNOME may require an AppIndicator extension to show a tray icon; the View menu's quota command remains available. In a headless Ubuntu 24.04 arm64 container without a secret service, the app refused with its credential-store message; a desktop Linux session with a keyring is still untested. The arm64 AppImage runtime needs `libz.so` from `zlib1g-dev`; this does not affect the published x64 artifacts. CI builds and tests on Linux and macOS.
+Linux does not require a desktop secret service. GNOME may require an AppIndicator extension to show a tray icon; the View menu's quota command remains available. A desktop Linux session remains untested. The arm64 AppImage runtime needs `libz.so` from `zlib1g-dev`; this does not affect the published x64 artifacts. CI builds, tests, and runs the Electron lifecycle smoke check on Linux and macOS. The Linux smoke uses Xvfb and the Chromium sandbox helper; it does not replace testing installation and tray behavior in a desktop session.
 
 The core installer pins 7.2.151 and all four supported archive checksums in
 `scripts/core-release.json`, then checks the downloaded release against those pins. Packaging also checks the core platform, architecture, and binary hash, preventing a Mac core from accidentally being included in a Linux build. No automatic upstream update runs. Change the pinned version and reviewed hashes together, reinstall it, and run the tests before packaging.
@@ -68,7 +71,7 @@ Packaging runs `scripts/validate-core.cjs` before building the archive and
 `scripts/verify-package.cjs` afterwards. These reject the wrong core version,
 target or hash, unexpected application files, credential files, stale desktop
 output, and missing licenses. Distribution commands use `--publish never`; they
-only create local artifacts. Packaged builds disable `ELECTRON_RUN_AS_NODE` and
+only create local artifacts. The desktop bundle is minified with function/class names retained for diagnostics. Native Chromium translations and ICU date/number locale data remain intact. Runtime dependencies are bundled into desktop/client output; duplicate `node_modules` are excluded, with full dependency license texts generated in `dist/licenses/THIRD-PARTY.txt`. The build rejects unbundled non-native desktop imports or missing dependency licenses. Packaged builds disable `ELECTRON_RUN_AS_NODE` and
 `NODE_OPTIONS`; ASAR integrity fuses remain disabled because unsigned builds failed
 to launch with them. Follow the [macOS release signing guide](release-signing.md)
 for package checks, then see [SECURITY.md](../SECURITY.md) for release requirements.
@@ -78,6 +81,7 @@ Run `bun run security:install`, `bun run security:secrets`,
 The optional scanner workspace has its own locked dependencies and
 `bun run security:tooling` audit.
 
-`bun run icons` regenerates the app and tray assets from the SVG sources.
+`bun run icons` regenerates the [app and tray assets](design/icons.md) from the
+mirrorball generator.
 `scripts/check-pi-profiles.mjs` is an optional compatibility check against an
 installed pi package; pass that package's directory as its argument.

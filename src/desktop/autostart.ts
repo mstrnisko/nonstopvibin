@@ -1,5 +1,5 @@
 import { existsSync } from "node:fs";
-import { mkdir, writeFile, rm } from "node:fs/promises";
+import { mkdir, writeFile, readFile, rm } from "node:fs/promises";
 import { join } from "node:path";
 
 function desktopEntry(executable: string): string {
@@ -12,7 +12,7 @@ function desktopEntry(executable: string): string {
     .replace(/[\\"`$]/g, (character) => `\\${character}`)
     .replaceAll("\\", "\\\\")
     .replaceAll("%", "%%");
-  return `[Desktop Entry]\nType=Application\nName=nonstopvibin\nExec="${argument}"\nTerminal=false\nX-GNOME-Autostart-enabled=true\n`;
+  return `[Desktop Entry]\nType=Application\nName=NonstopVibin\nExec="${argument}" --background\nTerminal=false\nX-GNOME-Autostart-enabled=true\n`;
 }
 export function linuxLoginItem(configDirectory: string): boolean {
   return existsSync(
@@ -27,8 +27,11 @@ export async function setLinuxLoginItem(
   const directory = join(configDirectory, "autostart");
   const file = join(directory, "app.nonstopvibin.desktop");
   if (enabled) {
+    const entry = desktopEntry(executable);
+    if (existsSync(file) && (await readFile(file, "utf8")) === entry)
+      return true;
     await mkdir(directory, { recursive: true });
-    await writeFile(file, desktopEntry(executable), { mode: 0o600 });
+    await writeFile(file, entry, { mode: 0o600 });
   } else await rm(file, { force: true });
   return linuxLoginItem(configDirectory);
 }

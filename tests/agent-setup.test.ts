@@ -18,6 +18,7 @@ import {
 } from "node:fs/promises";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
+import { runInNewContext } from "node:vm";
 import { AgentSetup, agentSetupSchema } from "../src/server/agent-setup.ts";
 import {
   nativeConfiguration,
@@ -100,6 +101,83 @@ async function fixture() {
     },
   };
 }
+
+test("Pi keeps profile controls usable when credentials, discovery or registration fail", async () => {
+  const f = await fixture();
+  try {
+    const installed = await f.setup.install(
+      f.company,
+      ...input("pi", f.project),
+    );
+    const source = (await readFile(installed.files[0], "utf8"))
+      .replace(/^import .*;$/gm, "")
+      .replace("export default async function", "async function extension");
+    for (const failure of [
+      "offline",
+      "deleted",
+      "empty",
+      "malformed",
+      "registration",
+      "stopped",
+      "missing-helper",
+    ]) {
+      if (failure === "stopped") f.keys.delete(f.company.id);
+      if (failure === "missing-helper") await rm(installed.files[2]);
+      const notices: string[] = [];
+      const handlers: Array<(...args: unknown[]) => void> = [];
+      const commands: string[] = [];
+      const removed: string[] = [];
+      let registrations = 0;
+      const result: Promise<void> = runInNewContext(
+        `${source}\nextension(pi)`,
+        {
+          execFile,
+          promisify,
+          AbortSignal,
+          getBuiltinModel: () => undefined,
+          fetch: async () => {
+            if (failure === "offline") throw new Error("offline");
+            return Response.json(
+              {
+                models:
+                  failure === "empty"
+                    ? []
+                    : failure === "malformed"
+                      ? null
+                      : [{ id: "fixture", api: "openai-completions" }],
+              },
+              { status: failure === "deleted" ? 401 : 200 },
+            );
+          },
+          pi: {
+            registerProvider: () => {
+              registrations++;
+              throw new Error("invalid registration");
+            },
+            unregisterProvider: (id: string) => removed.push(id),
+            events: { emit() {}, on() {} },
+            on: (name: string, handler: (...args: unknown[]) => void) => {
+              if (name === "session_start") handlers.push(handler);
+            },
+            registerCommand: (name: string) => commands.push(name),
+          },
+        },
+      );
+      await result;
+      assert.equal(registrations, failure === "registration" ? 1 : 0, failure);
+      assert.deepEqual(commands, ["nv"], failure);
+      await handlers[0](
+        {},
+        { ui: { notify: (text: string) => notices.push(text) } },
+      );
+      assert.deepEqual(removed, [installed.provider], failure);
+      assert.match(notices[0], /reconnect.*\/reload.*\/nv/);
+      assert.equal(notices[0].includes("nv_"), false);
+    }
+  } finally {
+    await f.close();
+  }
+});
 
 test(
   "custom Codex roots reject shared write access",
@@ -475,8 +553,8 @@ test("native update and disconnect preserve unrelated preferences and refuse edi
       );
       if (agent === "pi") {
         const manifest = JSON.parse(await readFile(installed.files[1], "utf8"));
-        assert.equal(manifest.version, 4);
-        manifest.version = 3;
+        assert.equal(manifest.version, 5);
+        manifest.version = 4;
         await writeFile(installed.files[1], JSON.stringify(manifest));
         assert.equal(
           (await f.setup.status(f.company, agent))?.needsReconnect,
@@ -745,6 +823,43 @@ test("reconnecting a legacy single-model setup removes only its owned model over
   }
 });
 
+test("Codex runtime state survives status, reconnect and disconnect", async () => {
+  const f = await fixture();
+  try {
+    const installed = await f.setup.install(
+      f.company,
+      ...input("codex", f.project),
+    );
+    const connection = await readFile(installed.files[0], "utf8");
+    const state =
+      '[hooks.state]\n[hooks.state."/fixture/hooks.json:stop:0:0"]\ntrusted_hash = "fixture-hash"\n\n[tui.model_availability_nux]\nfixture-model = true\n';
+    await writeFile(installed.files[0], connection + state);
+    assert.equal(
+      (await f.setup.status(f.company, "codex"))?.needsReconnect,
+      undefined,
+    );
+    f.setPort(4399);
+    await f.setup.install(f.company, ...input("codex", f.project));
+    const updated = await readFile(installed.files[0], "utf8");
+    assert.ok(updated.includes(state));
+    assert.ok(updated.includes("127.0.0.1:4399"));
+    await writeFile(
+      installed.files[0],
+      updated.replace("/p/work/v1", "/p/personal/v1"),
+    );
+    await assert.rejects(f.setup.status(f.company, "codex"), /edited outside/);
+    await assert.rejects(f.setup.remove(f.company, "codex"), /edited outside/);
+    await writeFile(installed.files[0], updated);
+    await f.setup.remove(f.company, "codex");
+    assert.equal(
+      (await readFile(installed.files[0], "utf8")).trim(),
+      state.trim(),
+    );
+  } finally {
+    await f.close();
+  }
+});
+
 test("Codex native model preferences survive reconnect and disconnect without permitting routing edits", async () => {
   const f = await fixture();
   try {
@@ -866,4 +981,26 @@ test("Codex only tags requests for gateway model filtering when other providers 
   assert.throws(() =>
     agentSetupSchema.parse({ agent: "pi", otherProviders: false }),
   );
+});
+
+test("native setup preserves safe slugs produced by older truncation rules", async () => {
+  const f = await fixture();
+  try {
+    for (const slug of ["a".repeat(39) + "-", "a".repeat(39) + "--2"]) {
+      const legacy = { ...f.company, slug };
+      const result = await f.setup.install(legacy, { agent: "codex" }, [
+        "fixture-model",
+      ]);
+      assert.ok(result.command.includes(slug));
+      assert.ok(result.files.some((file) => file.includes(slug)));
+      await f.setup.remove(legacy, "codex");
+    }
+    await assert.rejects(
+      f.setup.install({ ...f.company, slug: "../escape" }, { agent: "codex" }, [
+        "fixture-model",
+      ]),
+    );
+  } finally {
+    await f.close();
+  }
 });

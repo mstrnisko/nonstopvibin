@@ -69,15 +69,15 @@ const app = await Application.create({
   clientDirectory: resolve("dist/client"),
   port: 4321,
 });
-const work = app.store.createProfile("Company A · simulation", "forest");
-const personal = app.store.createProfile("Personal · simulation", "blue");
+const work = app.store.createProfile("Work", "forest");
+const personal = app.store.createProfile("Personal", "blue");
 for (const [profile, accounts] of [
   [
     work,
     [
       ["claude", "Claude Max", 72, 46],
       ["codex", "Codex Team", 84, 61],
-      ["codex", "Codex Team · second", 28, 82],
+      ["codex", "Codex Pro", 68, 82],
     ],
   ],
   [personal, [["claude", "Claude Pro", 91, 65]]],
@@ -111,17 +111,6 @@ for (const [profile, accounts] of [
           remainingPercent: week,
           resetsAt: new Date(Date.now() + 230_000_000).toISOString(),
         },
-        // Exhausted model-only window: must not mark the account "Out".
-        ...(provider === "claude"
-          ? [
-              {
-                label: "Fable weekly",
-                remainingPercent: 0,
-                resetsAt: null,
-                scoped: true as const,
-              },
-            ]
-          : []),
       ],
     });
   }

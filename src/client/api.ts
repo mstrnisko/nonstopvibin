@@ -16,11 +16,13 @@ export async function api<T>(
   path: string,
   method = "GET",
   body?: Json,
+  signal?: AbortSignal,
 ): Promise<T> {
   const headers = new Headers({ Authorization: `Bearer ${token}` });
   if (body !== undefined) headers.set("Content-Type", "application/json");
   const response = await fetch(`/api${path}`, {
     method,
+    signal,
     headers,
     body: body === undefined ? undefined : JSON.stringify(body),
   });
