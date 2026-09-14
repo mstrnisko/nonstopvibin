@@ -46,7 +46,7 @@ Keep the `.p12` file and its password out of the repository. Rotate the certific
 
 ## Why this matters
 
-Gatekeeper on macOS 15 and later blocks unsigned apps with no Control-click override. The Keychain “Safe Storage” prompt also reappears after every update unless the app keeps a stable signature.
+Gatekeeper on macOS 15 and later blocks unsigned apps with no Control-click override.
 
 ## After the first signed release
 
