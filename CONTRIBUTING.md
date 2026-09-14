@@ -2,8 +2,8 @@
 
 ## Prerequisites
 
-Install Bun 1.4.2 and Git. Running the desktop app on Linux also requires a secret
-service such as GNOME Keyring or KWallet.
+Install Bun 1.4.2 and Git. On macOS, install Xcode Command Line Tools
+(`xcode-select --install`) to build the native menu bar helper.
 
 ## Setup
 
@@ -27,8 +27,9 @@ bun run quality
 bun test
 ```
 
-Also run `bun run build` when changing runtime or build boundaries. Format files
-with `bun run format` before the final checks.
+Also run `bun run build` when changing runtime or build boundaries. Format touched
+files with `bunx --no-install oxfmt --write <files>` before the final checks.
+Documentation-only changes need formatting and a diff review.
 
 Run the dependency and secret checks:
 
@@ -36,6 +37,9 @@ Run the dependency and secret checks:
 bun run security:deps
 bun run security:install && bun run security:secrets
 ```
+
+Use [the commit conventions](docs/commits.md) for commit messages, scopes, and
+history cleanup.
 
 Keep pull requests small and focused. Explain what changed, why it changed, and
 which checks you ran. Include screenshots for visible UI changes.

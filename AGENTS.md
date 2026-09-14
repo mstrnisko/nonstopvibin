@@ -1,77 +1,70 @@
 # Working on nonstopvibin
 
-## Architecture and boundaries
+React/Vite owns the renderer; Electron owns desktop privileges; the local server
+and CLIProxyAPI core own credentials and routing. Use Bun and `bun.lock`;
+`.deepsec` has its own dependencies and lockfile.
 
-Read README.md and SECURITY.md before changing authentication, storage, proxying,
-imports, IPC, or packaging. React/Vite is the renderer; Electron owns desktop
-privileges. The local server and CLIProxyAPI core own credentials and routing.
-Use Bun and the checked-in bun.lock; do not reintroduce npm lockfiles. The
-.deepsec workspace has its own dependencies and lockfile.
+## Working style and completion
 
-Preserve these invariants:
+Make routine implementation decisions and finish the requested work without
+stopping at a first draft. Keep the diff focused; reuse existing code and avoid
+new dependencies unless the task needs them. Prefer medium effort for normal
+coding when configuring Codex; increase it for problems that warrant deeper work.
 
-- Profile keys never grant management access. HTTP, SSE, WebSocket, retries,
-  refreshes, accounting, and quota exhaustion must preserve the same profile.
-- Bind the gateway to loopback. Keep Host/Origin checks and endpoint allowlists.
-- Every privileged IPC handler validates its sender and arguments. Keep renderer
-  sandboxing, context isolation, and disabled Node integration.
-- Desktop storage requires safeStorage; never use plaintext fallback. The upstream
-  core's required plaintext files remain owner-only and outside distribution inputs.
-- Never include real auth files, API keys, request bodies, provider error bodies,
-  local runtime directories, or raw security reports in commits or app bundles.
+Done means the requested behavior works, touched files are formatted, relevant
+checks pass, and any remaining blockers or unverified behavior are reported.
+For code/config changes, `bun run quality` is the completion gate; use affected
+`bun test` tests for behavior changes and `bun run build` for runtime/build
+boundaries. Documentation-only changes need formatting and diff review.
+Fix failures caused by the change; repeat or broaden checks only for new edits,
+failures, or unresolved risks. Local integration tests use synthetic providers and
+the verified core; run and repair them without repeated approval or real accounts.
+
+Run `bunx --no-install oxfmt --write <touched-files>` on supported files before
+finishing; CI enforces formatting through `bun run quality`.
+
+## Performance
+
+Extract every last drop of performance from Electron: no wasted CPU, memory,
+I/O, IPC, renderer work, or idle wakeups. Keep startup fast and the main process
+responsive; avoid blocking work, redundant renders, polling where events suffice,
+and resources that outlive their use. Measure relevant before/after behavior for
+performance changes and pursue demonstrated bottlenecks. Preserve correctness,
+security, and accessibility while optimizing.
+
+## Security boundaries
+
+- Profile keys never grant management access. Preserve profile identity across
+  HTTP, SSE, WebSocket, retries, refreshes, accounting, and quota exhaustion.
+- Keep the gateway on loopback with Host/Origin checks and endpoint allowlists.
+- Validate privileged IPC senders and arguments; retain renderer sandboxing,
+  context isolation, and disabled Node integration.
+- SQLite secrets use an owner-only local `vault.key` in desktop and development.
+  Keep the key, database, and core credentials owner-only and out of distributions.
+  This does not protect against software running as the same OS user.
+- Never commit or bundle real auth files, API keys, request/provider error bodies,
+  local runtime directories, or raw security reports.
 - Preserve pinned core version/checksum and packaging platform/architecture/hash
-  checks. A checksum downloaded beside a binary is integrity evidence, not an
-  independent guarantee that the upstream publisher was uncompromised.
+  checks. An adjacent downloaded checksum is integrity evidence, not independent
+  assurance of the publisher.
 
-## Checks
+## Task-specific references
 
-Run `bun run quality` for code/config changes and `bun test` for behavior changes.
-Build with `bun run build` when changing runtime/build boundaries. Integration tests
-use synthetic local providers and the verified core; do not connect real accounts
-as a substitute for automated tests.
+Use [README.md](README.md) for orientation, [stack guidance](docs/stack-guidance.md)
+for runtime details, and [SECURITY.md](SECURITY.md) for security/release workflows.
+Dependency changes use `bun run security:deps`; scanner dependency changes also
+use `bun run security:tooling`. Release checks remain defined in SECURITY.md.
 
-For dependencies, run `bun run security:deps`; for scanner dependency changes,
-run `bun run security:tooling` too. Install Gitleaks with
-`bun run security:install`, then run `bun run security:secrets`. Before releasing,
-also scan Git history with `bun run security:history` and follow SECURITY.md.
-Treat an audit failure or untested platform as unresolved evidence, not a pass.
+Skills live in `.agents/skills`; use specific workflow triggers and load only the
+relevant sub-guides. Keep descriptions short and root documents as routers.
+React guidance here is client-side, not Next.js/RSC; the Vite skill's beta examples
+must be checked against installed types when used. Skill provenance and update
+procedures are in [security tooling](docs/security-tooling.md): keep vendored
+copies, hashes, and attribution together; setup must not reinstall latest skills.
 
-## Skills
-
-Project-local skills live in `.agents/skills/` and are versioned with the source:
-
-- `vercel-react-best-practices`: React rendering, data flow, and performance.
-  Apply the client guidance; Next.js/RSC-specific rules do not fit this Vite app.
-- `vercel-composition-patterns`: reusable React component APIs and state ownership.
-- `web-design-guidelines`: accessibility and UI review against Vercel guidance;
-  its remote guideline body must be inspected when fetched.
-- `vite`: config/plugins/builds, by Vite team member Anthony Fu. The skill is based
-  on a Vite 8 beta snapshot; check current installed types/docs for exact options.
-- `sharp-edges`: review misuse-prone auth/config/IPC APIs and fail-open defaults.
-- `property-based-testing`: domain invariants for routing, parsers, encryption,
-  and account separation. Add property tests when they constrain real behavior.
-
-Use the existing code-review and Codex Security skills when available for diff
-reviews and validated vulnerability investigations. Their availability is
-machine-specific; project quality checks must not depend on those plugins.
-For Electron, SQLite, Bun, TypeScript, and input validation, read the relevant
-section of docs/stack-guidance.md before changing that layer. It links official
-maintainer documentation; no unverified third-party skill fills these gaps.
-Skill provenance, candidates, and tradeoffs are in docs/security-tooling.md.
-
-The committed .agents/skills copies and skills-lock.json are part of project setup.
-A checkout supplies them; do not reinstall or update them from latest during
-`bun run setup`. Review source, references, executable files, and compatibility
-before any explicit skill update. Preserve hashes and attribution. Do not add
-frameworks, database adapters, or package managers merely to match a skill.
-
-## DeepSec
-
-Read `.deepsec/node_modules/deepsec/SKILL.md` before operating the scanner.
-`bun run security:scan` is local pattern matching; it does not establish that a
-candidate is exploitable. Keep curated INFO.md/config/matchers under version
-control; findings, traces, reports, credentials, and generated state stay ignored.
-Only create custom matchers from evidenced coverage gaps or validated findings.
-AI processing can use a logged-in local coding agent or configured provider;
-choose a bounded scope and review its execution environment before starting it.
-Do not automatically run AI agents against untrusted PRs with repository secrets.
+For DeepSec operations, use `.deepsec/README.md` and its installed `SKILL.md`.
+Pattern matches are candidates, not confirmed exploits. Keep generated state and
+reports ignored; create matchers only for evidenced gaps or validated findings.
+Bound AI scan scope and inspect its execution environment; never expose repository
+secrets to agents processing untrusted PRs. Treat failed audits and untested
+platforms as unresolved evidence.
