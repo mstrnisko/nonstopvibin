@@ -1,5 +1,6 @@
 // Executed with the exact generated controls in a fresh VM by the test wrapper.
-async (assert, connectProfileControls) => {
+async (assert, connectProfileControls, directory) => {
+  let sessionId = 0;
   function session(
     saved = [],
     initial = "nonstopvibin-work",
@@ -50,6 +51,7 @@ async (assert, connectProfileControls) => {
     }
     const builtins = new Map(providers);
     const ctx = {
+      cwd: directory,
       hasUI: true,
       get model() {
         return current;
@@ -58,6 +60,9 @@ async (assert, connectProfileControls) => {
       hasPendingMessages: () => pending,
       sessionManager: { getBranch: () => branch },
       modelRegistry: {
+        getAll: () =>
+          [...providers.values()].flatMap((item) => item.getModels()),
+        refresh: async () => {},
         getAvailable: () =>
           [...providers.values()].flatMap((item) => item.getModels()),
         getProvider: (id) => providers.get(id),
@@ -88,6 +93,7 @@ async (assert, connectProfileControls) => {
       return result;
     };
     const api = {
+      exec: async () => ({ code: 1, stdout: "" }),
       events: {
         emit: (name, event) => {
           for (const handler of subscribers.get(name) ?? []) handler(event);
@@ -133,7 +139,9 @@ async (assert, connectProfileControls) => {
         return true;
       },
     };
-    for (const profile of profiles) connectProfileControls(api, profile);
+    const preferences = directory + "/preferences-" + sessionId++;
+    for (const profile of profiles)
+      connectProfileControls(api, profile, preferences);
     return {
       ctx,
       api,
@@ -235,9 +243,7 @@ async (assert, connectProfileControls) => {
     work.menus.at(-1).options.some((label) => label.includes("personal")),
     false,
   );
-  await work.api.setModel(
-    work.ctx.modelRegistry.find("nonstopvibin-personal", "shared"),
-  );
+  await work.api.setModel({ provider: "nonstopvibin-personal", id: "shared" });
   assert.equal(
     work.model.provider,
     "nonstopvibin-work",

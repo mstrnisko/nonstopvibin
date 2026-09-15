@@ -1,3 +1,4 @@
+import { dirname, join } from "node:path";
 import type { AgentSetupInput, Profile } from "../shared/types.ts";
 import { piProfileControls } from "./pi-profile-controls.ts";
 
@@ -122,7 +123,7 @@ export default async function (pi) {
       ctx.ui.notify(printable(${JSON.stringify(`Could not load ${profile.name}'s nonstopvibin models. The profile may be stopped, deleted, or have no available models. Check Connect agents and reconnect, then /reload. Use /nv to choose another profile.`)}), "warning");
     });
   }
-  connectProfileControls(pi, ${JSON.stringify({ provider, name: profile.name, slug: profile.slug })});
+  connectProfileControls(pi, ${JSON.stringify({ provider, name: profile.name, slug: profile.slug })}, ${JSON.stringify(join(dirname(dirname(helper)), "pi-preferences"))});
 }
 `;
 }

@@ -1,10 +1,17 @@
 // Run: node scripts/check-pi-profiles.mjs /path/to/@earendil-works/pi-coding-agent
 // Uses only disposable settings, synthetic credentials and a loopback provider.
 import assert from "node:assert/strict";
-import { mkdtemp, mkdir, writeFile, rm, readFile } from "node:fs/promises";
+import {
+  mkdtemp,
+  mkdir,
+  writeFile,
+  rm,
+  readFile,
+  realpath,
+} from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import http from "node:http";
 import { spawnSync } from "node:child_process";
 import ts from "typescript";
@@ -35,6 +42,7 @@ if (process.argv[3] !== "--isolated") {
 const packageDir = resolve(process.argv[2]);
 const {
   createAgentSession,
+  AgentSessionRuntime,
   DefaultResourceLoader,
   ModelRuntime,
   SessionManager,
@@ -166,7 +174,8 @@ try {
   await new Promise((done) => server.listen(0, "127.0.0.1", done));
   const port = server.address().port;
   for (const slug of Object.keys(keys)) {
-    const helper = join(root, slug + "-key");
+    await mkdir(join(root, "profiles", slug), { recursive: true });
+    const helper = join(root, "profiles", slug, "key");
     await writeFile(helper, `#!/bin/sh\nprintf '%s\\n' '${keys[slug]}'\n`, {
       mode: 0o700,
     });
@@ -186,14 +195,19 @@ try {
       { mode: 0o600 },
     );
   }
-  async function openSession(slug, manager = SessionManager.inMemory(root)) {
+  async function openSession(
+    slug,
+    manager = SessionManager.inMemory(root),
+    cwd = root,
+    sessionStartEvent,
+  ) {
     const settingsManager = SettingsManager.inMemory({
       compaction: { enabled: false },
       retry: { enabled: false },
       enableInstallTelemetry: false,
     });
     const resourceLoader = new DefaultResourceLoader({
-      cwd: root,
+      cwd,
       agentDir,
       settingsManager,
       noSkills: true,
@@ -210,12 +224,13 @@ try {
       allowModelNetwork: false,
     });
     const result = await createAgentSession({
-      cwd: root,
+      cwd,
       agentDir,
       resourceLoader,
       modelRuntime,
       settingsManager,
       sessionManager: manager,
+      sessionStartEvent,
       tools: [],
       model: {
         ...catalog[0],
@@ -309,6 +324,15 @@ try {
     sessions.push(result.session);
     return {
       ...result,
+      services: {
+        cwd,
+        agentDir,
+        modelRuntime,
+        settingsManager,
+        resourceLoader,
+        diagnostics: [],
+      },
+      diagnostics: [],
       modelRuntime,
       choices,
       errors,
@@ -319,10 +343,301 @@ try {
       },
     };
   }
+  assert.equal(spawnSync("git", ["init", "-q", root]).status, 0);
+  const nested = join(root, "nested");
+  const otherRepo = join(root, "other-repo");
+  await mkdir(nested);
+  await mkdir(otherRepo);
+  assert.equal(spawnSync("git", ["init", "-q", otherRepo]).status, 0);
   const work = await openSession("work");
   const personal = await openSession("personal");
   assert.match(work.footer, /work/);
   assert.match(personal.footer, /personal/);
+  const available = (item) =>
+    item.modelRuntime.getAvailableSnapshot().map((model) => model.provider);
+  assert.deepEqual(
+    [...new Set(available(work))],
+    ["nonstopvibin-work"],
+    "native /model availability contains only the active profile",
+  );
+  assert.equal(
+    new Set(work.modelRuntime.getAvailableSnapshot().map((model) => model.id))
+      .size,
+    catalog.length,
+    "no duplicate models",
+  );
+  await work.modelRuntime.setRuntimeApiKey("openai", "synthetic-key");
+  assert.deepEqual(
+    [...new Set(available(work))],
+    ["nonstopvibin-work"],
+    "authenticating a native provider keeps the active profile catalog isolated",
+  );
+  await work.modelRuntime.removeRuntimeApiKey("openai");
+  await work.session.setModel(
+    work.modelRuntime.getModel("nonstopvibin-work", "second"),
+  );
+  assert.equal(
+    spawnSync("git", [
+      "-C",
+      root,
+      "-c",
+      "user.name=Synthetic",
+      "-c",
+      "user.email=fixture@example.invalid",
+      "-c",
+      "core.hooksPath=/dev/null",
+      "commit",
+      "--allow-empty",
+      "-qm",
+      "fixture",
+    ]).status,
+    0,
+  );
+  const linked = join(root, "linked");
+  assert.equal(
+    spawnSync("git", ["-C", root, "worktree", "add", "--detach", linked])
+      .status,
+    0,
+  );
+  const linkedNested = join(linked, "nested");
+  await mkdir(linkedNested);
+  const mainPreference = join(
+    root,
+    "profiles",
+    "pi-preferences",
+    createHash("sha256")
+      .update(await realpath(root))
+      .digest("hex") + ".json",
+  );
+  const savedMainPreference = await readFile(mainPreference, "utf8");
+  await writeFile(
+    mainPreference,
+    JSON.stringify({ provider: "nonstopvibin-work", modelId: "removed-model" }),
+  );
+  const missingInheritedModel = await openSession(
+    "work",
+    SessionManager.inMemory(linkedNested),
+    linkedNested,
+  );
+  const beforeMissingInheritedModel = requests.length;
+  await missingInheritedModel.session.prompt(
+    "Synthetic missing inherited model request",
+  );
+  assert.equal(
+    requests.length,
+    beforeMissingInheritedModel,
+    "a missing inherited model must not silently use the same profile's fallback",
+  );
+  const missingContext = {
+    messages: [
+      {
+        role: "user",
+        content: "Synthetic direct missing-model check",
+        timestamp: 1,
+      },
+    ],
+  };
+  for (const method of ["stream", "streamSimple"]) {
+    const rejected = await missingInheritedModel.modelRuntime[method](
+      missingInheritedModel.session.model,
+      missingContext,
+    ).result();
+    assert.equal(rejected.stopReason, "error");
+    assert.match(
+      rejected.errorMessage,
+      /saved nonstopvibin model is unavailable/,
+    );
+  }
+  assert.equal(
+    requests.length,
+    beforeMissingInheritedModel,
+    "direct transports also block unresolved inherited models",
+  );
+  await missingInheritedModel.session.setModel(
+    missingInheritedModel.modelRuntime.getModel("nonstopvibin-work", "second"),
+  );
+  await missingInheritedModel.session.prompt(
+    "Synthetic request after choosing an available model",
+  );
+  assert.equal(
+    requests.length,
+    beforeMissingInheritedModel + 1,
+    "explicit valid model selection recovers",
+  );
+  assert.deepEqual(requests.at(-1), { profile: "work", model: "second" });
+  await writeFile(mainPreference, savedMainPreference);
+  await rm(
+    join(
+      root,
+      "profiles",
+      "pi-preferences",
+      createHash("sha256")
+        .update(await realpath(linked))
+        .digest("hex") + ".json",
+    ),
+  );
+  const inherited = await openSession(
+    "personal",
+    SessionManager.inMemory(linkedNested),
+    linkedNested,
+  );
+  assert.equal(
+    inherited.session.model.provider,
+    "nonstopvibin-work",
+    "new worktree inherits the main checkout profile",
+  );
+  assert.equal(
+    inherited.session.model.id,
+    "second",
+    "new worktree inherits the main checkout model",
+  );
+  const linkedPreference = join(
+    root,
+    "profiles",
+    "pi-preferences",
+    createHash("sha256")
+      .update(await realpath(linked))
+      .digest("hex") + ".json",
+  );
+  await assert.rejects(
+    readFile(linkedPreference),
+    { code: "ENOENT" },
+    "inheritance does not create a redundant preference file",
+  );
+  const inheritedHost = new AgentSessionRuntime(
+    inherited.session,
+    inherited.services,
+    (options) =>
+      openSession(
+        "personal",
+        options.sessionManager,
+        options.cwd,
+        options.sessionStartEvent,
+      ),
+  );
+  await inheritedHost.newSession();
+  assert.equal(
+    inheritedHost.session.model.provider,
+    "nonstopvibin-work",
+    "/new in a worktree inherits the main profile",
+  );
+  assert.equal(inheritedHost.session.model.id, "second");
+  await inheritedHost.session.prompt("/nv personal");
+  const overridden = await openSession(
+    "work",
+    SessionManager.inMemory(linked),
+    linked,
+  );
+  assert.equal(
+    overridden.session.model.provider,
+    "nonstopvibin-personal",
+    "explicit worktree choice overrides the main checkout",
+  );
+  const mainUnchanged = await openSession("personal");
+  assert.equal(
+    mainUnchanged.session.model.provider,
+    "nonstopvibin-work",
+    "worktree choice does not overwrite the main checkout",
+  );
+  const resumedInherited = await openSession(
+    "work",
+    inherited.manager,
+    linkedNested,
+  );
+  assert.equal(
+    resumedInherited.session.model.provider,
+    "nonstopvibin-work",
+    "conversation selection remains authoritative",
+  );
+  overridden.choices.push("Use other pi providers");
+  await overridden.session.prompt("/nv");
+  const releasedWorktree = await openSession(
+    "work",
+    SessionManager.inMemory(linked),
+    linked,
+  );
+  assert.match(
+    releasedWorktree.footer,
+    /to choose a profile/,
+    "explicit worktree release does not inherit the main lock",
+  );
+  await writeFile(linkedPreference, "invalid JSON");
+  const corruptWorktree = await openSession(
+    "work",
+    SessionManager.inMemory(linked),
+    linked,
+  );
+  assert.match(
+    corruptWorktree.footer,
+    /unavailable/,
+    "corrupt worktree preference does not inherit a different profile",
+  );
+  const restarted = await openSession(
+    "personal",
+    SessionManager.inMemory(nested),
+    nested,
+  );
+  assert.equal(
+    restarted.session.model.provider,
+    "nonstopvibin-work",
+    "restart from a repo subdirectory restores the profile",
+  );
+  assert.equal(
+    restarted.session.model.id,
+    "second",
+    "native model selection is remembered",
+  );
+  const host = new AgentSessionRuntime(
+    restarted.session,
+    restarted.services,
+    (options) =>
+      openSession(
+        "personal",
+        options.sessionManager,
+        options.cwd,
+        options.sessionStartEvent,
+      ),
+  );
+  assert.deepEqual(await host.newSession(), { cancelled: false });
+  assert.equal(
+    host.session.model.provider,
+    "nonstopvibin-work",
+    "/new keeps the repository profile",
+  );
+  assert.equal(host.session.model.id, "second");
+  const independent = await openSession(
+    "personal",
+    SessionManager.inMemory(otherRepo),
+    otherRepo,
+  );
+  assert.equal(
+    independent.session.model.provider,
+    "nonstopvibin-personal",
+    "another repo does not inherit the preference",
+  );
+  const resumedPersonal = await openSession("work", personal.manager);
+  assert.equal(
+    resumedPersonal.session.model.provider,
+    "nonstopvibin-personal",
+    "saved conversation beats repository preference",
+  );
+  const branchSession = await openSession("work");
+  const initialModelEntry = branchSession.manager
+    .getBranch()
+    .find((entry) => entry.type === "model_change");
+  assert.ok(initialModelEntry);
+  await personal.session.setModel(
+    personal.modelRuntime.getModel("nonstopvibin-personal", "second"),
+  );
+  await branchSession.session.navigateTree(initialModelEntry.id);
+  assert.equal(
+    branchSession.session.model.provider,
+    "nonstopvibin-work",
+    "tree navigation restores its recorded profile ahead of another session's repository preference",
+  );
+  await personal.session.setModel(
+    personal.modelRuntime.getModel("nonstopvibin-personal", "shared"),
+  );
   await work.session.prompt("Synthetic work request");
   assert.equal(requests.at(-1)?.profile, "work");
   const context = {
@@ -330,7 +645,7 @@ try {
       { role: "user", content: "Synthetic boundary check", timestamp: 1 },
     ],
   };
-  const foreign = work.modelRuntime.getModel("nonstopvibin-personal", "shared");
+  const foreign = personal.session.model;
   const count = requests.length;
   for (const method of ["stream", "streamSimple"]) {
     const rejected = await work.modelRuntime[method](foreign, context).result();
@@ -364,6 +679,11 @@ try {
   });
   await work.session.prompt("/nv personal");
   assert.equal(work.session.model.provider, "nonstopvibin-personal");
+  assert.deepEqual(
+    [...new Set(available(work))],
+    ["nonstopvibin-personal"],
+    "native catalog follows profile switches",
+  );
   assert.equal(
     work.session.model.id,
     "anthropic-fixture",
@@ -374,7 +694,7 @@ try {
   await work.modelRuntime.refresh({ allowNetwork: false });
   const blocked = await work.modelRuntime
     .streamSimple(
-      work.modelRuntime.getModel("nonstopvibin-work", "shared"),
+      { ...work.session.model, provider: "nonstopvibin-work", id: "shared" },
       context,
     )
     .result();
@@ -389,6 +709,17 @@ try {
     work.choices.push("Use other pi providers");
     await work.session.prompt("/nv");
     assert.match(work.footer, /to choose a profile/);
+    assert.ok(available(work).includes("synthetic-other"));
+    assert.ok(
+      !available(work).some((id) => id.startsWith("nonstopvibin-")),
+      "release restores native providers without all profile duplicates",
+    );
+    const released = await openSession("work");
+    assert.match(
+      released.footer,
+      /to choose a profile/,
+      "release is remembered for new sessions",
+    );
     await work.session.setModel(
       work.modelRuntime.getModel("synthetic-other", "shared"),
     );
@@ -406,6 +737,15 @@ try {
   assert.equal(restored.session.model.provider, "nonstopvibin-personal");
   assert.equal(restored.session.model.id, "shared");
   personalAvailable = false;
+  const freshMissing = await openSession("work");
+  assert.match(
+    freshMissing.footer,
+    /personal/,
+    "missing repository preference never falls back to another profile",
+  );
+  const beforeFreshMissing = requests.length;
+  await freshMissing.session.prompt("Synthetic unavailable default request");
+  assert.equal(requests.length, beforeFreshMissing);
   const missing = await openSession("work", work.manager);
   const beforeMissing = requests.length;
   await missing.session.prompt("Synthetic missing-profile request");
@@ -415,7 +755,7 @@ try {
     "an unavailable restored profile does not fall back to Work",
   );
   assert.match(missing.footer, /personal/);
-  await rm(join(root, "personal-key"));
+  await rm(join(root, "profiles", "personal", "key"));
   const deleted = await openSession("work", work.manager);
   await restored.session.reload();
   for (const item of [deleted, restored]) {
@@ -429,13 +769,62 @@ try {
     await item.session.prompt("/nv work");
     assert.equal(item.session.model.provider, "nonstopvibin-work");
   }
-  for (const item of [work, personal, restored, missing, deleted])
+  const extensionPath = join(extensionDir, "work.js");
+  const extensionContent = await readFile(extensionPath, "utf8");
+  await rm(extensionPath);
+  await deleted.session.reload();
+  assert.equal(
+    deleted.modelRuntime.getModel("nonstopvibin-work", "shared"),
+    undefined,
+    "deleting the extension and /reload removes its provider",
+  );
+  await writeFile(extensionPath, extensionContent);
+  await deleted.session.reload();
+  assert.equal(deleted.session.model.provider, "nonstopvibin-work");
+  const preference = join(
+    root,
+    "profiles",
+    "pi-preferences",
+    createHash("sha256")
+      .update(await realpath(root))
+      .digest("hex") + ".json",
+  );
+  await writeFile(preference, "invalid JSON");
+  const corrupt = await openSession("work");
+  assert.match(corrupt.footer, /unavailable/);
+  const beforeCorrupt = requests.length;
+  await corrupt.session.prompt("Synthetic corrupt preference request");
+  assert.equal(
+    requests.length,
+    beforeCorrupt,
+    "corrupt preference fails closed",
+  );
+  for (const item of [
+    work,
+    personal,
+    restored,
+    missing,
+    deleted,
+    restarted,
+    independent,
+    resumedPersonal,
+    inherited,
+    missingInheritedModel,
+    overridden,
+    mainUnchanged,
+    resumedInherited,
+    releasedWorktree,
+    corruptWorktree,
+    branchSession,
+    freshMissing,
+    corrupt,
+  ])
     assert.deepEqual(item.errors, []);
   const version = JSON.parse(
     await readFile(join(packageDir, "package.json"), "utf8"),
   ).version;
   console.log(
-    `pi ${version}: strict generated-code types, extension loading/reload, searchable/scrolling picker, two protocols, profile lock, native selection/cycling, switching, refresh, concurrent sessions and unavailable-profile restore passed (${requests.length} synthetic requests).`,
+    `pi ${version}: strict generated-code types, extension loading/reload, searchable/scrolling picker, two protocols, profile lock, native catalog filtering, selection/cycling, repository restart and /new persistence, switching, refresh, concurrent sessions and unavailable-profile restore passed (${requests.length} synthetic requests).`,
   );
 } finally {
   for (const session of sessions) session.dispose();

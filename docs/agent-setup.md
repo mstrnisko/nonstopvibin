@@ -8,7 +8,7 @@ Start a profile, open **Connect agents**, choose **Claude Code**, **Codex**, or
 | ----------- | -------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------- |
 | Claude Code | Choose the main project folder; merge connection fields into `.claude/settings.local.json` and write a profile-specific picker settings file | Run the generated `claude --settings …` command in that project. Choose with `/model`; verify the gateway with `/status`. |
 | Codex       | Add `~/.codex/nonstopvibin-<slug>.config.toml`                                                                                               | Run `codex --profile nonstopvibin-<slug>` in any project, then choose an available model with `/model` before prompting.  |
-| pi          | Add an automatically loaded `.js` provider extension under `~/.pi/agent/extensions/`                                                         | Run `pi`, choose a profile with `/nv`, then use `/nv model`. The footer shows the conversation's locked profile.          |
+| pi          | Add an automatically loaded `.js` provider extension under `~/.pi/agent/extensions/`                                                         | Run `pi`, choose a profile once with `/nv`, then use `/model`. The footer shows the conversation's locked profile.        |
 
 Restart an already-running agent after setup. Pi also supports `/reload` for
 extensions. Setup uses supported environment overrides for the agent config
@@ -26,8 +26,10 @@ these interfaces. A newer version still needs verification when upstream changes
 ## Scope and existing settings
 
 Codex gets a separate profile file. Pi gets a separate extension file. Its main
-config, comments, stored auth, other providers, and defaults are left intact. Extension filenames contain the immutable profile UUID; provider IDs
-use `nonstopvibin-<slug>`. In pi, use `/nv` to explicitly change or release the
+config, comments, stored auth, other providers, and defaults are left intact. Pi extension filenames are `nonstopvibin-<slug>.js`, matching their provider IDs.
+Delete that file and `/reload` to remove a profile from pi, or use **Disconnect**
+in the app to also remove its credential helper. Reconnect migrates the old UUID
+filename only when its contents still match the owned installation. In pi, use `/nv` to explicitly change or release the
 conversation's profile lock before choosing another provider.
 
 Claude uses local project settings because global settings changes can affect
@@ -73,25 +75,40 @@ Reconnect each existing pi connection once to install the profile controls, then
 restart pi or `/reload`. Older connections are marked **Reconnect**. All connected
 profiles contribute to one `/nv` command; disconnecting one leaves the others usable.
 
-- `/nv` chooses the profile for this conversation. `/nv <slug>` selects it directly.
-- `/nv model` lists only that profile's models, with the current model first.
-  Both pickers support search, arrow keys, Enter and Escape; long lists scroll.
+- `/nv` chooses a profile and remembers it for this repository. `/nv <slug>` selects
+  it directly. The profile picker supports search, arrow keys, Enter and Escape.
+- Native `/model` lists the active profile's models without copies from the other
+  profiles. Native model changes are remembered too; `/nv model` remains a compatibility
+  alias. Pi's manually configured favorite-model scope remains separate: use the
+  picker's **all** scope if old favorites refer to another profile.
+- Opening pi or using `/new` restores the repository's last selected profile and
+  model. Subdirectories share the Git checkout's preference. A worktree without
+  its own preference inherits the main checkout's profile and model. An explicit
+  profile/model change (including releasing the lock) saves a worktree-only override;
+  inheritance itself creates no extra file. Existing conversations keep their own
+  selection. Outside Git, preferences are per working directory.
+  Preferences live in the app's private agent data (`agents/pi-preferences/`), never
+  in tracked repository files, and contain only profile/model IDs. Concurrent
+  sessions keep their own choices; the last explicit change wins for future sessions.
 - Switching profiles keeps the model when the destination offers the same ID;
   otherwise it asks for a model. Cancelling or failed authentication preserves the
   current profile. Switches are refused during a turn, retry, compaction, or queued work.
-- The footer shows the active profile. Session resume, reload and branch navigation
-  restore its selection. A missing profile/model blocks requests instead of adopting
-  pi's fallback. Start the profile and `/reload`, or explicitly choose another with `/nv`.
-- Native `/model` and Ctrl+P still use pi's catalog and favorite-model scope, so they
-  can display models from other profiles. Selecting one is refused while locked;
-  use `/nv model` for the filtered list. `/nv` → **Use other pi providers** releases
-  the lock. Pi's Ctrl+S startup defaults remain separate from session selection.
+- The footer shows the active profile. Resume, reload and branch navigation restore
+  the conversation's own selection ahead of the repository preference. A missing
+  profile/model blocks requests instead of adopting pi's fallback. Start the profile
+  and `/reload`, or explicitly choose another with `/nv`.
+- `/nv` → **Use other pi providers** releases the lock and remembers that preference.
+  Native providers return to `/model`; inactive nonstopvibin profiles stay hidden.
+
+The integration uses pi's [extension lifecycle and provider API](https://pi.dev/docs/latest/extensions)
+and its [provider catalog interface](https://github.com/earendil-works/pi/blob/main/packages/ai/src/models.ts).
+It does not replace the built-in `/model` command or rewrite pi's startup settings.
 
 A profile switch continues the existing conversation, including its context, through
 the chosen profile. Start a new pi session when that context should remain separate.
 Each open pi session has its own selection; changing the app's selected profile does
-not redirect any of them. In print/RPC use, select the initial provider/model with
-pi's native CLI options; the interactive picker is intended for the TUI.
+not redirect any of them. Repository preferences also apply in print/RPC mode; the interactive profile
+picker is intended for the TUI. Existing conversation selections always take priority.
 
 The design keeps existing provider IDs, endpoints, credential helpers and pi's
 protocol implementations. A provider stream guard enforces the selected profile;

@@ -120,6 +120,7 @@ const manifestSchema = z.union([
         z.literal(3),
         z.literal(4),
         z.literal(5),
+        z.literal(6),
       ]),
       input: agentSetupSchema,
       models: z.array(z.string().min(1).max(200)).max(10000),
@@ -421,6 +422,7 @@ export class AgentSetup {
     profile: Profile,
     input: AgentSetupInput,
     create: boolean,
+    version = 6,
   ): Promise<string> {
     const { home, codex, opencode, pi } = this.directories;
     if (input.agent === "claude") {
@@ -460,7 +462,7 @@ export class AgentSetup {
           : [
               ...(custom ? [] : [".pi", "agent"]),
               "extensions",
-              `nonstopvibin-${profile.id}.js`,
+              `nonstopvibin-${version < 6 ? profile.id : profile.slug}.js`,
             ];
     return configPath(custom || home, names, create);
   }
@@ -472,7 +474,7 @@ export class AgentSetup {
     const { input } = manifest;
     const folder = join(this.directory, profile.slug);
     const files = [
-      await this.target(profile, input, false),
+      await this.target(profile, input, false, manifest.version),
       join(folder, this.manifestName(input.agent, input.projectDirectory)),
     ];
     if (input.agent !== "opencode") files.push(this.helper(folder, manifest));
@@ -500,7 +502,7 @@ export class AgentSetup {
           : input.agent === "codex"
             ? `Works in any project. Pick a model with /model before the first prompt; Codex's built-in default may not exist here. Needs Codex 0.140.0 or later.`
             : input.agent === "pi"
-              ? `Use /nv to choose ${profile.name}, then /nv model to switch models within it. The footer shows the locked profile; /nv changes it for this conversation only. Restart pi or /reload after reconnecting each profile. Skip /login: a stored key would override the credential helper. Needs pi 0.85.1 or later.`
+              ? `Choose ${profile.name} once with /nv; pi remembers the profile and model for this repository, including /new. Use native /model to switch models. The footer shows the active profile. Restart pi or /reload after reconnecting each profile. Skip /login: a stored key would override the credential helper. Needs pi 0.85.1 or later.`
               : `Use /models to choose nonstopvibin · ${profile.name}. Needs OpenCode 1.18.29 or later; background model overrides to another provider are rejected.`,
     };
   }
@@ -515,7 +517,7 @@ export class AgentSetup {
     const result = await this.result(profile, manifest);
     if (
       manifest.version === 1 ||
-      (agent === "pi" && manifest.version !== 5) ||
+      (agent === "pi" && manifest.version !== 6) ||
       (agent === "claude" && manifest.version !== 3)
     )
       result.needsReconnect = true;
@@ -598,7 +600,7 @@ export class AgentSetup {
       if (!folder)
         throw new AppError("Could not create the agent connection directory.");
       const manifest: Manifest = {
-        version: validated.agent === "pi" ? 5 : 3,
+        version: validated.agent === "pi" ? 6 : 3,
         input: validated,
         models: catalog,
         port,
@@ -611,6 +613,21 @@ export class AgentSetup {
           : nativeConfiguration(profile, validated, helper, port);
       const target = await this.target(profile, validated, true);
       const before = await readConfig(target);
+      const previousTarget = previous
+        ? await this.target(profile, previous.input, false, previous.version)
+        : target;
+      const previousContent =
+        previousTarget === target
+          ? undefined
+          : await readConfig(previousTarget);
+      if (
+        previousContent !== undefined &&
+        previousContent !== previous?.content
+      )
+        throw new AppError(
+          "The old pi extension was edited outside nonstopvibin. Resolve it before reconnecting.",
+          409,
+        );
       const after = mergeNativeConfig(
         validated.agent,
         before,
@@ -652,7 +669,12 @@ export class AgentSetup {
         );
       }
       await replaceConfig(target, before, after);
+      let previousRemoved = false;
       try {
+        if (previousContent !== undefined) {
+          await replaceConfig(previousTarget, previousContent, undefined);
+          previousRemoved = true;
+        }
         if (pickerAfter !== undefined)
           await replaceConfig(pickerPath, pickerBefore, pickerAfter);
         try {
@@ -669,6 +691,8 @@ export class AgentSetup {
           throw error;
         }
       } catch (error) {
+        if (previousRemoved)
+          await replaceConfig(previousTarget, undefined, previousContent);
         await replaceConfig(target, after, before);
         throw error;
       }
@@ -695,7 +719,12 @@ export class AgentSetup {
         throw new AppError("Choose which Claude project to disconnect.");
       const manifest = await this.manifest(profile, agent, project);
       if (!manifest) return;
-      const target = await this.target(profile, manifest.input, false);
+      const target = await this.target(
+        profile,
+        manifest.input,
+        false,
+        manifest.version,
+      );
       const before = await readConfig(target);
       const folder = join(this.directory, profile.slug);
       const pickerPath = this.pickerPath(folder, manifest.input);

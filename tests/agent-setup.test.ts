@@ -553,7 +553,16 @@ test("native update and disconnect preserve unrelated preferences and refuse edi
       );
       if (agent === "pi") {
         const manifest = JSON.parse(await readFile(installed.files[1], "utf8"));
-        assert.equal(manifest.version, 5);
+        assert.equal(manifest.version, 6);
+        const legacy = join(
+          f.home,
+          ".pi",
+          "agent",
+          "extensions",
+          `nonstopvibin-${f.company.id}.js`,
+        );
+        await writeFile(legacy, await readFile(installed.files[0], "utf8"));
+        await rm(installed.files[0]);
         manifest.version = 4;
         await writeFile(installed.files[1], JSON.stringify(manifest));
         assert.equal(
@@ -621,6 +630,58 @@ test("native update and disconnect preserve unrelated preferences and refuse edi
       { ...input("pi", f.project)[0], projectDirectory: f.project },
     ])
       assert.equal(agentSetupSchema.safeParse(invalid).success, false);
+  } finally {
+    await f.close();
+  }
+});
+
+test("pi readable extension migration preserves edits and supports manual removal", async () => {
+  const f = await fixture();
+  try {
+    const installed = await f.setup.install(
+      f.company,
+      ...input("pi", f.project),
+    );
+    const readable = join(
+      f.home,
+      ".pi",
+      "agent",
+      "extensions",
+      "nonstopvibin-work.js",
+    );
+    const legacy = join(
+      f.home,
+      ".pi",
+      "agent",
+      "extensions",
+      `nonstopvibin-${f.company.id}.js`,
+    );
+    assert.equal(installed.files[0], readable);
+    const content = await readFile(readable, "utf8");
+    const manifest = JSON.parse(await readFile(installed.files[1], "utf8"));
+    manifest.version = 5;
+    await writeFile(installed.files[1], JSON.stringify(manifest));
+    await rm(readable);
+    await writeFile(legacy, content + "\n// user edit");
+    await assert.rejects(
+      f.setup.install(f.company, ...input("pi", f.project)),
+      /edited outside/,
+    );
+    await assert.rejects(stat(readable), { code: "ENOENT" });
+    await writeFile(legacy, content);
+    await writeFile(readable, "// unrelated extension");
+    await assert.rejects(
+      f.setup.install(f.company, ...input("pi", f.project)),
+      /edited outside/,
+    );
+    assert.equal(await readFile(legacy, "utf8"), content);
+    await rm(readable);
+    await f.setup.install(f.company, ...input("pi", f.project));
+    await assert.rejects(stat(legacy), { code: "ENOENT" });
+    await rm(readable); // Deleting the obvious extension file is a supported uninstall.
+    assert.equal((await f.setup.status(f.company, "pi"))?.needsReconnect, true);
+    await f.setup.remove(f.company, "pi");
+    assert.equal(await f.setup.status(f.company, "pi"), null);
   } finally {
     await f.close();
   }
