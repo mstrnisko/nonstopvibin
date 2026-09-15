@@ -2,20 +2,18 @@
 
 GitHub Actions builds releases; GitHub Releases hosts installers and update metadata.
 No separate update server is required. Updates are currently disabled by
-`updatesEnabled: false` in `package.json`, so local builds never query the placeholder
-repository. Development builds and Linux deb installations also do not auto-update.
+`updatesEnabled: false` in `package.json`. The release repository is
+[samuelfarkas/nonstopvibin](https://github.com/samuelfarkas/nonstopvibin).
+Development builds and Linux deb installations also do not auto-update.
 
-## Connect the repository later
+## Enable releases and updates
 
-1. Create the public GitHub repository and push the reviewed code.
-2. Set `build.publish[0].owner` and `repo` in `package.json` to that repository.
-   Update the homepage, repository and bugs URLs too. Never put a token in this file.
-3. Configure the five Apple signing/notarization secrets in
+1. Configure the five Apple signing/notarization secrets in
    [release signing](release-signing.md). Tagged releases fail without signing;
    ordinary CI and local packaging can still build unsigned installers.
-4. Set `updatesEnabled` to `true`. This is compiled into the app; changing it on
+2. Set `updatesEnabled` to `true`. This is compiled into the app; changing it on
    GitHub cannot enable an already-installed build.
-5. Protect the release tags and require reviewed changes on the default branch.
+3. Keep release tags protected and require reviewed changes on the default branch.
    Run an actual signed upgrade between two versions before distributing publicly.
 
 The workflow checks that the configured update repository equals the repository
