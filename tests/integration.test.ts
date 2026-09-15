@@ -1,5 +1,9 @@
 import { after, before, test } from "node:test";
 import assert from "node:assert/strict";
+import { createElement } from "react";
+import { renderToStaticMarkup } from "react-dom/server";
+import { SettingsPage } from "../src/client/Settings.tsx";
+import coreRelease from "../scripts/core-release.json";
 import http from "node:http";
 import { connect } from "node:net";
 import { once } from "node:events";
@@ -213,6 +217,20 @@ test("static assets revalidate without caching management responses", async () =
     app.options.clientDirectory = original;
   }
 });
+test("settings displays the core release pin supplied by application state", () => {
+  const state = app.state();
+  assert.equal(state.coreVersion, coreRelease.version);
+  const html = renderToStaticMarkup(
+    createElement(SettingsPage, {
+      state,
+      refresh: async () => {},
+      onError: assert.fail,
+    }),
+  );
+  assert.ok(html.includes(`<code>${coreRelease.version}</code>`));
+  assert.match(html, /CLIProxyAPI/);
+});
+
 test("real core launches with separate owner-only directories and a model catalog", async () => {
   const config = record(await app.core.management(company.id, "/config"));
   assert.equal(config["commercial-mode"], true);

@@ -52,6 +52,40 @@ Preserve the generated DMG, macOS ZIP, AppImage, deb, blockmaps and channel YAML
 files. A DMG alone cannot supply a macOS update. Do not upload builder debug files.
 The GitHub-generated source ZIP is not an update payload.
 
+## Updating the CLIProxyAPI core
+
+CLIProxyAPI ships inside every installer as a separate native executable at
+`resources/core/cli-proxy-api` (inside `Contents/Resources` on macOS), alongside
+`manifest.json`. Electron launches it as a child process for each running profile.
+Users do not install the core separately. Settings shows the version pinned in
+`scripts/core-release.json`.
+
+Keep core upgrades part of an app release so the wrapper and core are tested and
+distributed together. To upgrade:
+
+1. Review the chosen [upstream release](https://github.com/router-for-me/CLIProxyAPI/releases)
+   and its changes to configuration, management APIs, authentication and routing.
+2. Update `scripts/core-release.json`: the version, archive SHA-256 checksums, and
+   SHA-256 hashes of the extracted unsigned executables for all four listed targets.
+   Verify downloaded archives against upstream checksums before extracting and
+   hashing their executables. Checksums published beside the downloads establish
+   integrity, not independent assurance of the publisher.
+3. Quit the running app and run `bun run core:install`. This installs the reviewed
+   pin into `.vendor/core`; it does not select the latest upstream release.
+   For another packaging target, set `CORE_PLATFORM` and `CORE_ARCH`, for example
+   `CORE_PLATFORM=linux CORE_ARCH=x64 bun run core:install`.
+4. Run `bun run quality`, `bun test`, `bun run build`, and the release checks in
+   [SECURITY.md](../SECURITY.md). Exercise the synthetic-provider integration tests
+   against the new core and verify the packaged app on each shipping target.
+5. Bump the app version, record the core upgrade in `CHANGELOG.md`, and publish
+   through the normal release workflow above.
+
+Packaging rejects mismatched versions, platforms, architectures and binary hashes.
+macOS signing updates the packaged manifest hash after verifying the unsigned core.
+Installed users receive the new core by updating NonstopVibin; while app updates
+are disabled, they install the newer app manually. Development checkouts rerun
+`bun run core:install` after pulling a changed pin, then restart the app.
+
 ## Installed behavior
 
 Enabled packaged macOS and AppImage builds check 30 seconds after startup and

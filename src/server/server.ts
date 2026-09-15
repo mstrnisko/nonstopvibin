@@ -6,6 +6,7 @@ import { existsSync } from "node:fs";
 import { extname, resolve } from "node:path";
 import { randomBytes, randomUUID } from "node:crypto";
 import { z } from "zod";
+import coreRelease from "../../scripts/core-release.json";
 import type {
   ApiAccount,
   AppState,
@@ -256,7 +257,7 @@ export class Application {
     });
     return {
       profiles,
-      coreVersion: "7.2.151",
+      coreVersion: coreRelease.version,
       coreAvailable: existsSync(this.options.binary),
       gateway: this.origin,
       storage: this.store.codec.label,

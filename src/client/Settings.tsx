@@ -93,6 +93,19 @@ export function SettingsPage({
               </div>
             </div>
             <section className="settings-section">
+              <h3>Proxy core</h3>
+              <div className="setting-row">
+                <div className="setting-copy">
+                  <h3>CLIProxyAPI</h3>
+                  <p>
+                    Included with NonstopVibin. Core upgrades arrive with app
+                    updates.
+                  </p>
+                </div>
+                <code>{state.coreVersion}</code>
+              </div>
+            </section>
+            <section className="settings-section">
               <h3>Desktop</h3>
               <div className="setting-row">
                 <div className="setting-copy">
