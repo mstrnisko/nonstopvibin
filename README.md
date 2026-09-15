@@ -4,41 +4,43 @@
 
 # NonstopVibin
 
-A desktop app for connecting Claude Code, Codex, and pi to your AI subscriptions
-and API accounts. Runs a local proxy on macOS and Linux using
+Connect **Claude Code, Codex, and pi** to your AI subscriptions and API accounts.
+NonstopVibin is a local desktop proxy for **macOS and Linux**, powered by
 [CLIProxyAPI](https://github.com/router-for-me/CLIProxyAPI).
 
-Keep work, personal, and project accounts in separate profiles. Each profile has
-its own API key and endpoint. Requests use only that profile's accounts and fail
-when none can serve them.
+**[Build from source](#build-from-source)** · [Setup](#setup) · [Provider support](docs/providers.md)
 
-[Setup](#setup) · [Build from source](#build-from-source) · [Provider support](docs/providers.md) · [Development](docs/development.md)
+_Screenshots use sample accounts and simulated quotas. [Capture notes](docs/media/production.md)._
 
-![Subscriptions and quota windows](docs/design/subscriptions.png)
+## Accounts, quotas, and agents in one place
 
-## Accounts, quotas, and activity
+- **See your remaining quota.** Check account limits and reset times in the app or
+  menu bar. Use **Fill first** to prioritize accounts or **Round robin** to spread
+  requests. New profiles use fill first with session affinity enabled.
+- **Keep account pools separate.** Work, personal, and project profiles each have
+  their own key and endpoint. Requests use only that profile's accounts and fail
+  when none can serve them.
+- **Connect the agents you already use.** Sign in to Claude or ChatGPT/Codex,
+  connect OpenCode Go with a subscription key, add a compatible API, or import
+  CLIProxyAPI account files. Then open **Connect agents** for setup and launch
+  instructions.
 
-- Sign in to Claude or ChatGPT/Codex, connect OpenCode Go with a subscription key,
-  add a compatible API, or import CLIProxyAPI account files.
-- Use **Fill first** to prioritize accounts or **Round robin** to spread requests.
-  New profiles use fill first with session affinity enabled.
-- Check account quota windows and reset times in the app or menu bar. Review and
-  use available Codex banked resets with explicit confirmation.
-- View request history, token counts, and estimated API value. Charts, tables,
-  and CSV exports use the latest 500 requests in the selected period; summary
-  totals cover the full period.
+![Subscription accounts, remaining quotas, and reset times in the Work profile](docs/media/subscriptions.png)
 
-Quota reporting depends on the provider. Cross-provider models are opt-in for
-Claude Code and Codex and use experimental protocol translation. Live subscription
-inference, quota checks, and reset redemption remain unverified; see
-[provider support](docs/providers.md) for the tested scope.
+## See where requests go
 
-<details>
-<summary>Activity</summary>
+Review request history, token counts, errors, and estimated API value. Filter the
+request log or export it as CSV. Charts, tables, and exports use the latest 500
+requests in the selected period; summary totals cover the full period.
 
-![Activity, token usage, and request history](docs/design/activity.png)
+![Seven days of simulated activity, token usage, and request history](docs/media/activity.png)
 
-</details>
+Quota reporting depends on the provider. Available Codex banked resets can be
+reviewed and used with explicit confirmation. Cross-provider models are opt-in
+for Claude Code and Codex and use experimental protocol translation.
+
+**Prerelease:** live subscription inference, quota checks, and reset redemption
+remain unverified. See [provider support](docs/providers.md) for the tested scope.
 
 ## Setup
 
@@ -54,6 +56,11 @@ Keep NonstopVibin and the profile running while you work. Selecting another
 profile in the app changes the view, not an agent's existing conversation.
 See [agent setup](docs/agent-setup.md) for client versions, model selection,
 reconnecting, and disconnecting.
+
+![Codex connected to the isolated Work profile, with its launch command](docs/media/connect.png)
+
+This capture shows configuration in the simulator's isolated agent home. It does
+not demonstrate a live Codex conversation.
 
 Closing the window leaves the proxy running in the menu bar. **Quit** stops it.
 **Start at login** is optional in Settings.
