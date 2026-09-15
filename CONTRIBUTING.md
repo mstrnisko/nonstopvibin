@@ -13,6 +13,15 @@ bun run setup
 
 This installs the locked dependencies and the checksum-pinned CLIProxyAPI core.
 
+Keep direct dependencies pinned to exact versions in both package manifests.
+Bun saves exact versions by default; use `bun ci` for routine installs so transitive
+versions and integrity hashes stay locked too. Upgrade deliberately with
+`bun add --exact <package>@<version>` (add `--dev` for development dependencies),
+review the manifest and lockfile diff, and run the dependency audit and checks.
+For scanner updates, work inside `.deepsec` and run `bun run security:tooling`
+from the app root. Dependabot updates are reviewable pull requests, not automatic
+installs. Version pins do not establish that a package is safe.
+
 ## Development
 
 ```sh
