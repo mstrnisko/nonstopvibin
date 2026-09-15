@@ -4,6 +4,7 @@ import { App } from "./client/App.tsx";
 import "@fontsource-variable/geist";
 import "@fontsource-variable/geist-mono";
 import "./client/styles.css";
+import "./client/focus.ts";
 
 class ErrorBoundary extends React.Component<
   { children: React.ReactNode },

@@ -44,8 +44,15 @@
 
   --radius: 6px;
   --radius-lg: 10px;
-  --focus: 0 0 0 2px var(--bg-1), 0 0 0 4px var(--amber);
+  --focus-color: Highlight;
   --ease: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-out: cubic-bezier(0.2, 0, 0, 1);
+  --shadow-pop:
+    0 0 0 1px oklch(1 0 0 / 0.06), 0 1px 2px oklch(0 0 0 / 0.4),
+    0 12px 32px -8px oklch(0 0 0 / 0.6);
+  --shadow-modal:
+    0 0 0 1px oklch(1 0 0 / 0.07), 0 1px 2px oklch(0 0 0 / 0.5),
+    0 24px 64px -16px oklch(0 0 0 / 0.7);
 
   --z-dropdown: 10;
   --z-sticky: 20;
@@ -65,6 +72,9 @@
 * {
   box-sizing: border-box;
 }
+html:has(.app) {
+  scrollbar-gutter: stable;
+}
 body {
   margin: 0;
 }
@@ -81,16 +91,31 @@ button {
   transition:
     background 0.15s,
     border-color 0.15s,
-    color 0.15s;
+    color 0.15s,
+    scale 160ms var(--ease-out);
 }
 button:disabled {
   cursor: default;
   opacity: 0.45;
 }
-:focus-visible {
-  outline: 0;
-  box-shadow: var(--focus);
-  border-radius: var(--radius);
+:focus {
+  outline: none;
+}
+:where(:root[data-keyboard-focus]) :focus-visible,
+:where(
+  input:not([type]),
+  input[type="text"],
+  input[type="password"],
+  input[type="number"],
+  input[type="email"],
+  input[type="search"],
+  input[type="url"],
+  input[type="tel"],
+  textarea,
+  [contenteditable="true"]
+):focus {
+  outline: 2px solid var(--focus-color);
+  outline-offset: var(--focus-offset, 2px);
 }
 h1,
 h2,
@@ -124,7 +149,7 @@ small {
 }
 svg {
   flex-shrink: 0;
-  stroke-width: 1.75;
+  stroke-width: 1.5;
 }
 hr {
   border: 0;
@@ -192,7 +217,13 @@ pre {
 @keyframes rise-in {
   from {
     opacity: 0;
-    transform: translateY(4px);
+    transform: translateY(6px);
+  }
+}
+@keyframes pop-in {
+  from {
+    opacity: 0;
+    scale: 0.96;
   }
 }
 
@@ -273,18 +304,10 @@ textarea::placeholder {
   overflow: hidden;
   padding: 4px;
   background: var(--bg-2);
-  border: 1px solid var(--line-strong);
   border-radius: var(--radius);
-  box-shadow:
-    0 1px 2px oklch(0 0 0 / 0.4),
-    0 12px 32px -8px oklch(0 0 0 / 0.6);
-  animation: select-in 0.12s ease-out;
-}
-@keyframes select-in {
-  from {
-    opacity: 0;
-    transform: translateY(-3px);
-  }
+  box-shadow: var(--shadow-pop);
+  transform-origin: var(--radix-select-content-transform-origin);
+  animation: pop-in 140ms var(--ease-out);
 }
 .select-item {
   position: relative;
@@ -307,7 +330,7 @@ textarea::placeholder {
   white-space: nowrap;
 }
 .select-item:focus-visible {
-  box-shadow: none;
+  outline: none;
 }
 .select-item[data-highlighted] {
   background: var(--bg-3);
@@ -351,7 +374,12 @@ input[role="switch"] {
   border-radius: 20px;
   padding: 0;
   cursor: pointer;
-  transition: background 0.2s;
+  transition:
+    background 0.2s,
+    scale 160ms var(--ease-out);
+}
+input[role="switch"]:active:not(:disabled) {
+  scale: 0.96;
 }
 input[role="switch"]:after {
   content: "";
@@ -363,14 +391,14 @@ input[role="switch"]:after {
   border-radius: 50%;
   background: var(--ink-2);
   transition:
-    left 0.2s var(--ease),
+    translate 0.2s var(--ease),
     background 0.2s;
 }
 input[role="switch"]:checked {
   background: var(--green-dim);
 }
 input[role="switch"]:checked:after {
-  left: 0.9375rem;
+  translate: 0.75rem 0;
   background: var(--green);
 }
 input[role="switch"]:disabled {
@@ -449,6 +477,18 @@ input[role="switch"]:disabled {
 .button:active:not(:disabled) {
   background: var(--bg-4);
 }
+.button:active:not(:disabled),
+.text-button:active:not(:disabled),
+.icon-button:active:not(:disabled),
+.segmented button:active:not(:disabled),
+.profile-button:active,
+.main-nav button:active,
+.sidebar-version > button:active {
+  scale: 0.97;
+}
+.button.primary svg {
+  stroke-width: 1.75;
+}
 .button.primary {
   background: var(--amber);
   color: var(--amber-ink);
@@ -494,6 +534,10 @@ input[role="switch"]:disabled {
   color: var(--ink);
   background: var(--bg-3);
 }
+.text-button:active:not(:disabled),
+.icon-button:active:not(:disabled) {
+  background: var(--bg-4);
+}
 .text-button.text-bad {
   color: var(--red);
 }
@@ -528,7 +572,7 @@ input[role="switch"]:disabled {
 .segmented button {
   border: 0;
   background: transparent;
-  border-radius: 4px;
+  border-radius: 3px;
   padding: 3px 9px;
   font-family: var(--mono);
   font-size: var(--text-caption);
@@ -932,7 +976,8 @@ input[role="switch"]:disabled {
   color: var(--ink);
   font-weight: 500;
 }
-.profile-button.selected:before {
+.profile-button.selected:before,
+.main-nav button.selected:before {
   content: "";
   position: absolute;
   left: 0;
@@ -985,7 +1030,7 @@ input[role="switch"]:disabled {
   color: var(--ink-3);
 }
 .main-nav button.selected svg {
-  color: var(--ink);
+  color: var(--amber-text);
 }
 .sidebar-bottom {
   margin-top: auto;
@@ -1076,7 +1121,8 @@ input[role="switch"]:disabled {
       calc((100% - var(--content-width)) / 2 + var(--page-gutter))
     );
   border-bottom: 1px solid var(--line);
-  min-height: 74px;
+  min-height: 4.75rem;
+  flex-shrink: 0;
   position: sticky;
   top: 0;
   background: var(--bg-2);
@@ -1100,6 +1146,9 @@ input[role="switch"]:disabled {
   white-space: nowrap;
 }
 .page-title code {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
   font-family: var(--sans);
   font-size: var(--text-body);
   color: var(--ink-3);
@@ -1118,7 +1167,6 @@ input[role="switch"]:disabled {
   flex: 1;
   display: flex;
   flex-direction: column;
-  animation: fade-in 0.2s var(--ease);
 }
 .page-footer {
   display: flex;
@@ -1166,11 +1214,11 @@ input[role="switch"]:disabled {
   gap: 8px;
   padding: 9px 14px;
   background: var(--bg-3);
-  border: 1px solid var(--line-strong);
   border-radius: var(--radius);
   font-size: var(--text-body);
   z-index: var(--z-toast);
-  animation: rise-in 0.2s var(--ease);
+  box-shadow: var(--shadow-pop);
+  animation: rise-in 0.2s var(--ease-out);
 }
 .toast svg {
   color: var(--green);
@@ -1364,7 +1412,6 @@ input[role="switch"]:disabled {
   padding: 1.25rem 0;
   border-bottom: 1px solid var(--line);
   position: relative;
-  animation: rise-in 0.25s var(--ease) both;
 }
 .account-row.disabled .account-identity,
 .account-row.disabled .quota-meter {
@@ -1508,6 +1555,9 @@ input[role="switch"]:disabled {
 .empty-choices button:hover {
   background: var(--bg-3);
 }
+.empty-choices button:active {
+  background: var(--bg-4);
+}
 .empty-choices strong {
   display: block;
   font-size: var(--text-body);
@@ -1574,28 +1624,43 @@ input[role="switch"]:disabled {
   position: fixed;
   left: 50%;
   top: 50%;
-  transform: translate(-50%, -50%);
+  translate: -50% -50%;
   width: 36rem;
   max-width: calc(100vw - 32px);
   max-height: calc(100vh - 48px);
   overflow: auto;
+  overscroll-behavior: contain;
   background: var(--bg-2);
-  border: 1px solid var(--line-strong);
   border-radius: var(--radius-lg);
   z-index: var(--z-modal);
-  padding: 20px 22px 22px;
-  box-shadow: 0 8px 24px oklch(0 0 0 / 0.4);
-  animation: rise-in 0.18s var(--ease);
+  padding: 0 22px 22px;
+  box-shadow: var(--shadow-modal);
+  animation: pop-in 180ms var(--ease-out);
 }
 .modal.wide {
   width: 46rem;
 }
+/* Heading and footer stay pinned while a long form scrolls between them. */
 .modal-heading {
   display: flex;
   justify-content: space-between;
   align-items: flex-start;
   gap: 16px;
-  margin-bottom: 18px;
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  margin: 0 -22px 18px;
+  padding: 20px 22px 12px;
+  background: var(--bg-2);
+  box-shadow: 0 1px 0 var(--line);
+  animation: modal-edge-top linear both;
+  animation-timeline: scroll();
+  animation-range: 0 1px;
+}
+@keyframes modal-edge-top {
+  from {
+    box-shadow: 0 1px 0 transparent;
+  }
 }
 .modal-heading h2 {
   font-size: var(--text-subheading);
@@ -1613,6 +1678,25 @@ input[role="switch"]:disabled {
   justify-content: flex-end;
   gap: 8px;
   margin-top: 20px;
+}
+/* Only a footer that ends the dialog pins to the bottom edge. */
+.modal > .modal-footer:last-child,
+.modal > :last-child > .modal-footer:last-child {
+  position: sticky;
+  bottom: 0;
+  z-index: 1;
+  margin: 20px -22px -22px;
+  padding: 12px 22px 22px;
+  background: var(--bg-2);
+  box-shadow: 0 -1px 0 var(--line);
+  animation: modal-edge-bottom linear both;
+  animation-timeline: scroll();
+  animation-range: calc(100% - 1px) 100%;
+}
+@keyframes modal-edge-bottom {
+  to {
+    box-shadow: 0 -1px 0 transparent;
+  }
 }
 .info-note {
   display: flex;
@@ -1788,27 +1872,26 @@ details > dl {
     width: 12.5rem;
     min-width: 12.5rem;
   }
-  .page-header,
-  .page-body,
-  .page-footer {
-    padding-left: 18px;
-    padding-right: 18px;
-  }
-  .headroom {
-    margin-left: -18px;
-    margin-right: -18px;
-    padding-left: 18px;
-    padding-right: 18px;
-  }
 }
 @media (max-width: 620px) {
-  .page-header,
+  .page-header {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: 2rem minmax(3.5rem, auto);
+    gap: 0.5rem;
+  }
   .accounts-note {
     align-items: flex-start;
     flex-direction: column;
   }
   .page-actions {
-    flex-wrap: wrap;
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .page-actions .button {
+    padding-inline: 0.5rem;
+    font-size: var(--text-caption);
+    white-space: normal;
   }
   .account-limits {
     grid-template-columns: repeat(auto-fit, minmax(8rem, 1fr));
@@ -1868,11 +1951,15 @@ details > dl {
   font-weight: 600;
   text-transform: uppercase;
 }
+/* Reduced motion removes movement and scaling; colour and opacity fades stay. */
 @media (prefers-reduced-motion: reduce) {
   *,
   *:before,
   *:after {
     animation: none !important;
-    transition: none !important;
+    transition-property:
+      background, background-color, border-color, color, opacity !important;
+    transition-duration: 0.15s !important;
+    scale: none !important;
   }
 }

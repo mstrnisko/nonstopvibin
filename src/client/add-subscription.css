@@ -37,6 +37,10 @@
   border-color: var(--line-strong);
 }
 
+.provider-option:active:not(:disabled) {
+  background: var(--bg-4);
+}
+
 .provider-option > span {
   min-width: 0;
   flex: 1;
@@ -330,6 +334,10 @@
 
 .detected-account:hover {
   background: var(--bg-3);
+}
+
+.detected-account:active {
+  background: var(--bg-4);
 }
 
 .detected-account > span {

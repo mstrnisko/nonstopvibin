@@ -1,6 +1,6 @@
 .connect-page {
-  width: min(100%, 72rem);
-  align-self: center;
+  width: 100%;
+  min-width: 0;
   display: flex;
   flex-direction: column;
   align-items: stretch;
@@ -129,6 +129,7 @@
   color: var(--ink-3);
   font-family: var(--sans);
   font-size: var(--text-body);
+  transition: color 150ms ease;
 }
 
 .agent-tabs button:hover {
@@ -140,7 +141,7 @@
   font-weight: 600;
 }
 
-.agent-tabs button.active::after {
+.agent-tabs button::after {
   content: "";
   position: absolute;
   height: 2px;
@@ -148,14 +149,20 @@
   right: 0;
   bottom: -1px;
   background: var(--amber);
+  opacity: 0;
+  transition: opacity 150ms ease;
 }
 
-.agent-tabs button:focus-visible {
-  box-shadow: inset 0 0 0 2px var(--amber);
+.agent-tabs button.active::after {
+  opacity: 1;
+}
+
+.agent-tabs button {
+  --focus-offset: -3px;
 }
 
 .quick-setup {
-  max-width: 72rem;
+  width: 100%;
 }
 
 .quick-setup > p,
@@ -199,7 +206,6 @@
   align-items: center;
   justify-content: space-between;
   gap: 24px;
-  max-width: 44rem;
   margin-top: 18px;
   padding: 14px 0;
   border-top: 1px solid var(--line);

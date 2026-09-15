@@ -546,7 +546,7 @@ export function App() {
                             <span className="label">Limits</span>
                             <span />
                           </div>
-                          {accounts.map((a, index) => {
+                          {accounts.map((a) => {
                             // Account-wide limits first; model-only windows fill spare slots.
                             const windows = [...(a.quota?.windows ?? [])]
                               .sort(
@@ -570,7 +570,6 @@ export function App() {
                             return (
                               <div
                                 className={`account-row ${a.disabled ? "disabled" : ""}`}
-                                style={{ animationDelay: `${index * 30}ms` }}
                                 key={a.id}
                               >
                                 <button

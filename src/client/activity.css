@@ -404,12 +404,6 @@
   color: var(--ink);
 }
 
-.activity-page summary:focus-visible {
-  outline: 2px solid var(--amber);
-  outline-offset: 3px;
-  border-radius: 2px;
-}
-
 .activity-disclosure[open] {
   padding-bottom: 20px;
 }

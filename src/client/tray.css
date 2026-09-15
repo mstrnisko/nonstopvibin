@@ -70,9 +70,8 @@
 .tray-profile-group[open] > .tray-profile {
   background: var(--bg-3);
 }
-.tray-profile:focus-visible {
-  outline: 2px solid var(--amber-text);
-  outline-offset: -3px;
+.tray-profile {
+  --focus-offset: -3px;
 }
 .tray-profile-title {
   display: grid;
@@ -193,10 +192,8 @@
 .tray-account[open] > summary {
   background: var(--bg-3);
 }
-.tray-account-summary:focus-visible {
-  outline: 2px solid var(--amber-text);
-  outline-offset: -3px;
-  box-shadow: none;
+.tray-account-summary {
+  --focus-offset: -3px;
 }
 .tray-account-summary .provider-icon {
   width: 26px;

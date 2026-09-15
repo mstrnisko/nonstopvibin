@@ -271,7 +271,7 @@ export function TrayView({
       <footer>
         <span>
           {state.profiles.reduce((sum, p) => sum + p.accounts.length, 0)}{" "}
-          subscriptions · local
+          subscriptions
         </span>
         <button
           className="text-button"
